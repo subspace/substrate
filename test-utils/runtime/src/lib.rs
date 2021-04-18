@@ -518,6 +518,9 @@ impl frame_support::traits::PalletInfo for Runtime {
 		if type_id == sp_std::any::TypeId::of::<pallet_babe::Pallet<Runtime>>() {
 			return Some("Babe")
 		}
+		if type_id == sp_std::any::TypeId::of::<pallet_spartan::Pallet<Runtime>>() {
+			return Some("Spartan")
+		}
 
 		None
 	}
@@ -592,6 +595,29 @@ impl pallet_babe::Config for Runtime {
 		KeyTypeId,
 		AuthorityId,
 	)>>::IdentificationTuple;
+
+	type HandleEquivocation = ();
+
+	type WeightInfo = ();
+}
+
+parameter_types! {
+	pub const EraDuration: u32 = 5;
+	pub const EonDuration: u64 = 11;
+	pub const InitialSolutionRange: u64 = u64::MAX;
+	pub const SlotProbability: (u64, u64) = (3, 10);
+}
+
+impl pallet_spartan::Config for Runtime {
+	type EpochDuration = EpochDuration;
+	type EraDuration = EraDuration;
+	type EonDuration = EonDuration;
+	type InitialSolutionRange = InitialSolutionRange;
+	type SlotProbability = SlotProbability;
+	type ExpectedBlockTime = ExpectedBlockTime;
+	type EpochChangeTrigger = pallet_spartan::NormalEpochChange;
+	type EraChangeTrigger = pallet_spartan::NormalEraChange;
+	type EonChangeTrigger = pallet_spartan::NormalEonChange;
 
 	type HandleEquivocation = ();
 
@@ -859,6 +885,52 @@ cfg_if! {
 				}
 			}
 
+			impl sp_consensus_poc::PoCApi<Block> for Runtime {
+				fn configuration() -> sp_consensus_poc::PoCGenesisConfiguration {
+					sp_consensus_poc::PoCGenesisConfiguration {
+						slot_duration: 1000,
+						epoch_length: EpochDuration::get(),
+						c: (3, 10),
+						randomness: <pallet_spartan::Pallet<Runtime>>::randomness(),
+					}
+				}
+
+				fn solution_range() -> u64 {
+					<pallet_spartan::Pallet<Runtime>>::solution_range()
+						.unwrap_or_else(InitialSolutionRange::get)
+				}
+
+				fn salt() -> u64 {
+					<pallet_spartan::Pallet<Runtime>>::salt()
+				}
+
+				fn current_epoch_start() -> Slot {
+					<pallet_spartan::Pallet<Runtime>>::current_epoch_start()
+				}
+
+				fn current_epoch() -> sp_consensus_poc::Epoch {
+					<pallet_spartan::Pallet<Runtime>>::current_epoch()
+				}
+
+				fn next_epoch() -> sp_consensus_poc::Epoch {
+					<pallet_spartan::Pallet<Runtime>>::next_epoch()
+				}
+
+				fn submit_report_equivocation_unsigned_extrinsic(
+					equivocation_proof: sp_consensus_poc::EquivocationProof<
+						<Block as BlockT>::Header,
+					>,
+				) -> Option<()> {
+					<pallet_spartan::Pallet<Runtime>>::submit_test_equivocation_report(
+						equivocation_proof,
+					)
+				}
+
+				fn is_in_block_list(farmer_id: &sp_consensus_poc::FarmerId) -> bool {
+					<pallet_spartan::Pallet<Runtime>>::is_in_block_list(farmer_id)
+				}
+			}
+
 			impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
 				fn offchain_worker(header: &<Block as BlockT>::Header) {
 					let ex = Extrinsic::IncludeData(header.number.encode());
@@ -1110,6 +1182,52 @@ cfg_if! {
 					_authority_id: sp_consensus_babe::AuthorityId,
 				) -> Option<sp_consensus_babe::OpaqueKeyOwnershipProof> {
 					None
+				}
+			}
+
+			impl sp_consensus_poc::PoCApi<Block> for Runtime {
+				fn configuration() -> sp_consensus_poc::PoCGenesisConfiguration {
+					sp_consensus_poc::PoCGenesisConfiguration {
+						slot_duration: 1000,
+						epoch_length: EpochDuration::get(),
+						c: (3, 10),
+						randomness: <pallet_spartan::Pallet<Runtime>>::randomness(),
+					}
+				}
+
+				fn solution_range() -> u64 {
+					<pallet_spartan::Pallet<Runtime>>::solution_range()
+						.unwrap_or_else(InitialSolutionRange::get)
+				}
+
+				fn salt() -> u64 {
+					<pallet_spartan::Pallet<Runtime>>::salt()
+				}
+
+				fn current_epoch_start() -> Slot {
+					<pallet_spartan::Pallet<Runtime>>::current_epoch_start()
+				}
+
+				fn current_epoch() -> sp_consensus_poc::Epoch {
+					<pallet_spartan::Pallet<Runtime>>::current_epoch()
+				}
+
+				fn next_epoch() -> sp_consensus_poc::Epoch {
+					<pallet_spartan::Pallet<Runtime>>::next_epoch()
+				}
+
+				fn submit_report_equivocation_unsigned_extrinsic(
+					equivocation_proof: sp_consensus_poc::EquivocationProof<
+						<Block as BlockT>::Header,
+					>,
+				) -> Option<()> {
+					<pallet_spartan::Pallet<Runtime>>::submit_test_equivocation_report(
+						equivocation_proof,
+					)
+				}
+
+				fn is_in_block_list(farmer_id: &sp_consensus_poc::FarmerId) -> bool {
+					<pallet_spartan::Pallet<Runtime>>::is_in_block_list(farmer_id)
 				}
 			}
 

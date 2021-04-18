@@ -4,6 +4,8 @@
   <img src="/docs/media/sub.gif">
 </p>
 
+**Notes:** The code is a fork of `paritytech/substrate` that adds a set of Proof-of-Capacity (PoC) consensus modules. These modules are exposed in a new substrate template: [`node-template-spartan`](https://github.com/subspace/substrate/tree/poc/bin/node-template-spartan). 
+
 
 Substrate is a next-generation framework for blockchain innovation 🚀.
 
