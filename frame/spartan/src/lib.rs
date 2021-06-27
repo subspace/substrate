@@ -684,7 +684,7 @@ impl<T: Config> Pallet<T> {
         const PROOF: &str = "slot number is u64; it should relate in some way to wall clock time; \
 							 if u64 is not enough we should crash for safety; qed.";
 
-        let eon_start = eon_index.checked_mul(T::EpochDuration::get()).expect(PROOF);
+        let eon_start = eon_index.checked_mul(T::EonDuration::get()).expect(PROOF);
 
         eon_start
             .checked_add(*GenesisSlot::<T>::get())
