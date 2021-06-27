@@ -63,7 +63,7 @@ fn first_block_epoch_zero_start() {
         assert_eq!(Spartan::author_por_randomness(), None);
         assert_eq!(NextRandomness::<Test>::get(), [0; 32]);
 
-        assert_eq!(header.digest.logs.len(), 3);
+        assert_eq!(header.digest.logs.len(), 4);
         assert_eq!(pre_digest.logs.len(), 1);
         assert_eq!(header.digest.logs[0], pre_digest.logs[0]);
 
