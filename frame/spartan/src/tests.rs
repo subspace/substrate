@@ -137,6 +137,9 @@ fn can_update_solution_range_on_era_change() {
         assert_eq!(Spartan::solution_range(), None);
 
         // We produce blocks on every slot
+        progress_to_block(4);
+        // Still no solution range update
+        assert_eq!(Spartan::solution_range(), None);
         progress_to_block(5);
 
         // Second era should have solution range updated
@@ -156,6 +159,33 @@ fn can_update_solution_range_on_era_change() {
         );
         // This should cause solution range to increase as apparent pledged space decreased
         assert!(Spartan::solution_range().unwrap() > last_solution_range);
+    })
+}
+
+#[test]
+fn can_update_salt_on_eon_change() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(<Test as Config>::EonDuration::get(), 5);
+        // Initial salt equals to eon
+        assert_eq!(Spartan::salt(), 0);
+
+        // We produce blocks on every slot
+        progress_to_block(5);
+        // Still no salt update
+        assert_eq!(Spartan::salt(), 0);
+        progress_to_block(6);
+
+        // Second eon should have salt updated
+        assert_matches!(Spartan::salt(), 1);
+
+        // We produce blocks on every slot
+        progress_to_block(10);
+        // Just before eon update, still the same salt as before
+        assert_eq!(Spartan::salt(), 1);
+        progress_to_block(11);
+
+        // Third eon should have salt updated again
+        assert_matches!(Spartan::salt(), 2);
     })
 }
 
