@@ -18,7 +18,9 @@
 
 //! Test utilities
 
-use crate::{self as pallet_spartan, Config, FarmerId, NormalEpochChange, NormalEraChange};
+use crate::{
+    self as pallet_spartan, Config, FarmerId, NormalEonChange, NormalEpochChange, NormalEraChange,
+};
 use codec::Encode;
 use frame_support::{parameter_types, traits::OnInitialize};
 use frame_system::InitKind;
@@ -135,6 +137,7 @@ pub const INITIAL_SOLUTION_RANGE: u64 =
 parameter_types! {
     pub const EpochDuration: u64 = 3;
     pub const EraDuration: u32 = 4;
+    pub const EonDuration: u32 = 5;
     // 1GB
     pub const InitialSolutionRange: u64 = INITIAL_SOLUTION_RANGE;
     pub const SlotProbability: (u64, u64) = SLOT_PROBABILITY;
@@ -144,11 +147,13 @@ parameter_types! {
 impl Config for Test {
     type EpochDuration = EpochDuration;
     type EraDuration = EraDuration;
+    type EonDuration = EonDuration;
     type InitialSolutionRange = InitialSolutionRange;
     type SlotProbability = SlotProbability;
     type ExpectedBlockTime = ExpectedBlockTime;
     type EpochChangeTrigger = NormalEpochChange;
     type EraChangeTrigger = NormalEraChange;
+    type EonChangeTrigger = NormalEonChange;
 
     // TODO: milestone 3
     // type HandleEquivocation =
