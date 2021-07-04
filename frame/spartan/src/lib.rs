@@ -23,19 +23,21 @@
 
 use codec::{Decode, Encode};
 use frame_support::{
-    traits::{Get, OnTimestampSet},
-    weights::Weight,
+    dispatch::DispatchResultWithPostInfo,
+    traits::{Get, KeyOwnerProofSystem, OnTimestampSet},
+    weights::{Pays, Weight},
 };
 #[cfg(not(feature = "std"))]
 use num_traits::float::FloatCore;
 use sp_consensus_poc::{
     digests::{NextConfigDescriptor, NextEpochDescriptor, NextSolutionRangeDescriptor, PreDigest},
-    ConsensusLog, Epoch, PoCEpochConfiguration, /*EquivocationProof, */ Slot, POC_ENGINE_ID,
+    ConsensusLog, Epoch, EquivocationProof, PoCEpochConfiguration, Slot, POC_ENGINE_ID,
 };
 pub use sp_consensus_poc::{FarmerId, RANDOMNESS_LENGTH};
 use sp_runtime::{
     generic::DigestItem,
     traits::{One, SaturatedConversion, Saturating, Zero},
+    KeyTypeId,
 };
 use sp_std::prelude::*;
 
@@ -46,11 +48,11 @@ mod equivocation;
 mod benchmarking;
 #[cfg(all(feature = "std", test))]
 mod mock;
+mod offence;
 #[cfg(all(feature = "std", test))]
 mod tests;
 
-// TODO: retain for milestone 3
-// pub use equivocation::{PoCEquivocationOffence, EquivocationHandler, HandleEquivocation};
+pub use equivocation::{EquivocationHandler, HandleEquivocation, PoCEquivocationOffence};
 
 pub use pallet::*;
 use sp_consensus_poc::digests::NextSaltDescriptor;
@@ -185,14 +187,13 @@ pub mod pallet {
         /// has ended and to perform the transition to the next eon.
         type EonChangeTrigger: EonChangeTrigger;
 
-        // TODO: Bring this back for milestone 3
-        // /// The equivocation handling subsystem, defines methods to report an
-        // /// offence (after the equivocation has been validated) and for submitting a
-        // /// transaction to report an equivocation (from an offchain context).
-        // /// NOTE: when enabling equivocation handling (i.e. this type isn't set to
-        // /// `()`) you must use this pallet's `ValidateUnsigned` in the runtime
-        // /// definition.
-        // type HandleEquivocation: HandleEquivocation<Self>;
+        /// The equivocation handling subsystem, defines methods to report an
+        /// offence (after the equivocation has been validated) and for submitting a
+        /// transaction to report an equivocation (from an offchain context).
+        /// NOTE: when enabling equivocation handling (i.e. this type isn't set to
+        /// `()`) you must use this pallet's `ValidateUnsigned` in the runtime
+        /// definition.
+        type HandleEquivocation: HandleEquivocation<Self>;
 
         type WeightInfo: WeightInfo;
     }
@@ -378,48 +379,35 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        // TODO: fix in milestone 3
-        // /// Report farmer equivocation/misbehavior. This method will verify
-        // /// the equivocation proof and validate the given key ownership proof
-        // /// against the extracted offender. If both are valid, the offence will
-        // /// be reported.
-        // #[pallet::weight(<T as Config>::WeightInfo::report_equivocation())]
-        // pub fn report_equivocation(
-        // 	origin: OriginFor<T>,
-        // 	equivocation_proof: EquivocationProof<T::Header>,
-        // 	key_owner_proof: T::KeyOwnerProof,
-        // ) -> DispatchResultWithPostInfo {
-        // 	let reporter = ensure_signed(origin)?;
-        //
-        // 	Self::do_report_equivocation(
-        // 		Some(reporter),
-        // 		equivocation_proof,
-        // 		key_owner_proof,
-        // 	)
-        // }
-        //
-        // /// Report authority equivocation/misbehavior. This method will verify
-        // /// the equivocation proof and validate the given key ownership proof
-        // /// against the extracted offender. If both are valid, the offence will
-        // /// be reported.
-        // /// This extrinsic must be called unsigned and it is expected that only
-        // /// block authors will call it (validated in `ValidateUnsigned`), as such
-        // /// if the block author is defined it will be defined as the equivocation
-        // /// reporter.
-        // #[pallet::weight(<T as Config>::WeightInfo::report_equivocation())]
-        // pub fn report_equivocation_unsigned(
-        // 	origin: OriginFor<T>,
-        // 	equivocation_proof: EquivocationProof<T::Header>,
-        // 	key_owner_proof: T::KeyOwnerProof,
-        // ) -> DispatchResultWithPostInfo {
-        // 	ensure_none(origin)?;
-        //
-        // 	Self::do_report_equivocation(
-        // 		T::HandleEquivocation::block_author(),
-        // 		equivocation_proof,
-        // 		key_owner_proof,
-        // 	)
-        // }
+        /// Report farmer equivocation/misbehavior. This method will verify
+        /// the equivocation proof and validate the given key ownership proof
+        /// against the extracted offender. If both are valid, the offence will
+        /// be reported.
+        #[pallet::weight(<T as Config>::WeightInfo::report_equivocation())]
+        pub fn report_equivocation(
+            _origin: OriginFor<T>,
+            equivocation_proof: EquivocationProof<T::Header>,
+        ) -> DispatchResultWithPostInfo {
+            Self::do_report_equivocation(equivocation_proof)
+        }
+
+        /// Report authority equivocation/misbehavior. This method will verify
+        /// the equivocation proof and validate the given key ownership proof
+        /// against the extracted offender. If both are valid, the offence will
+        /// be reported.
+        /// This extrinsic must be called unsigned and it is expected that only
+        /// block authors will call it (validated in `ValidateUnsigned`), as such
+        /// if the block author is defined it will be defined as the equivocation
+        /// reporter.
+        #[pallet::weight(<T as Config>::WeightInfo::report_equivocation())]
+        pub fn report_equivocation_unsigned(
+            origin: OriginFor<T>,
+            equivocation_proof: EquivocationProof<T::Header>,
+        ) -> DispatchResultWithPostInfo {
+            ensure_none(origin)?;
+
+            Self::do_report_equivocation(equivocation_proof)
+        }
 
         /// Plan an epoch config change. The epoch config change is recorded and will be enacted on
         /// the next call to `enact_epoch_change`. The config will be activated one epoch after.
@@ -803,70 +791,35 @@ impl<T: Config> Pallet<T> {
         this_randomness
     }
 
-    // TODO: fix for milestone 3
-    // fn do_report_equivocation(
-    // 	reporter: Option<T::AccountId>,
-    // 	equivocation_proof: EquivocationProof<T::Header>,
-    // 	key_owner_proof: T::KeyOwnerProof,
-    // ) -> DispatchResultWithPostInfo {
-    // 	let offender = equivocation_proof.offender.clone();
-    // 	let slot = equivocation_proof.slot;
-    //
-    // 	// validate the equivocation proof
-    // 	if !sp_consensus_poc::check_equivocation_proof(equivocation_proof) {
-    // 		return Err(Error::<T>::InvalidEquivocationProof.into());
-    // 	}
-    //
-    // 	let validator_set_count = key_owner_proof.validator_count();
-    // 	let session_index = key_owner_proof.session();
-    //
-    // 	let epoch_index = (*slot.saturating_sub(GenesisSlot::<T>::get()) / T::EpochDuration::get())
-    // 		.saturated_into::<u32>();
-    //
-    // 	// check that the slot number is consistent with the session index
-    // 	// in the key ownership proof (i.e. slot is for that epoch)
-    // 	if epoch_index != session_index {
-    // 		return Err(Error::<T>::InvalidKeyOwnershipProof.into());
-    // 	}
-    //
-    // 	// check the membership proof and extract the offender's id
-    // 	let key = (sp_consensus_poc::KEY_TYPE, offender);
-    // 	let offender = T::KeyOwnerProofSystem::check_proof(key, key_owner_proof)
-    // 		.ok_or(Error::<T>::InvalidKeyOwnershipProof)?;
-    //
-    // 	let offence = PoCEquivocationOffence {
-    // 		slot,
-    // 		validator_set_count,
-    // 		offender,
-    // 		session_index,
-    // 	};
-    //
-    // 	let reporters = match reporter {
-    // 		Some(id) => vec![id],
-    // 		None => vec![],
-    // 	};
-    //
-    // 	T::HandleEquivocation::report_offence(reporters, offence)
-    // 		.map_err(|_| Error::<T>::DuplicateOffenceReport)?;
-    //
-    // 	// waive the fee since the report is valid and beneficial
-    // 	Ok(Pays::No.into())
-    // }
-    //
-    // /// Submits an extrinsic to report an equivocation. This method will create
-    // /// an unsigned extrinsic with a call to `report_equivocation_unsigned` and
-    // /// will push the transaction to the pool. Only useful in an offchain
-    // /// context.
-    // pub fn submit_unsigned_equivocation_report(
-    // 	equivocation_proof: EquivocationProof<T::Header>,
-    // 	key_owner_proof: T::KeyOwnerProof,
-    // ) -> Option<()> {
-    // 	T::HandleEquivocation::submit_unsigned_equivocation_report(
-    // 		equivocation_proof,
-    // 		key_owner_proof,
-    // 	)
-    // 	.ok()
-    // }
+    fn do_report_equivocation(
+        equivocation_proof: EquivocationProof<T::Header>,
+    ) -> DispatchResultWithPostInfo {
+        let offender = equivocation_proof.offender.clone();
+        let slot = equivocation_proof.slot;
+
+        // validate the equivocation proof
+        if !sp_consensus_poc::check_equivocation_proof(equivocation_proof) {
+            return Err(Error::<T>::InvalidEquivocationProof.into());
+        }
+
+        let offence = PoCEquivocationOffence { slot, offender };
+
+        T::HandleEquivocation::report_offence(offence)
+            .map_err(|_| Error::<T>::DuplicateOffenceReport)?;
+
+        // waive the fee since the report is valid and beneficial
+        Ok(Pays::No.into())
+    }
+
+    /// Submits an extrinsic to report an equivocation. This method will create
+    /// an unsigned extrinsic with a call to `report_equivocation_unsigned` and
+    /// will push the transaction to the pool. Only useful in an offchain
+    /// context.
+    pub fn submit_unsigned_equivocation_report(
+        equivocation_proof: EquivocationProof<T::Header>,
+    ) -> Option<()> {
+        T::HandleEquivocation::submit_unsigned_equivocation_report(equivocation_proof).ok()
+    }
 }
 
 impl<T: Config> OnTimestampSet<T::Moment> for Pallet<T> {

@@ -155,9 +155,8 @@ impl Config for Test {
     type EraChangeTrigger = NormalEraChange;
     type EonChangeTrigger = NormalEonChange;
 
-    // TODO: milestone 3
-    // type HandleEquivocation =
-    // 	super::EquivocationHandler<Self::KeyOwnerIdentification, Offences, ReportLongevity>;
+    type HandleEquivocation =
+        super::EquivocationHandler<Self::KeyOwnerIdentification, Offences, ReportLongevity>;
 
     type WeightInfo = ();
 }
@@ -217,51 +216,50 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         .into()
 }
 
-// TODO: milestone 3
-// /// Creates an equivocation at the current block, by generating two headers.
-// pub fn generate_equivocation_proof(
-// 	offender_authority_index: u32,
-// 	offender_authority_pair: &AuthorityPair,
-// 	slot: Slot,
-// ) -> sp_consensus_poc::EquivocationProof<Header> {
-// 	use sp_consensus_poc::digests::CompatibleDigestItem;
-//
-// 	let current_block = System::block_number();
-// 	let current_slot = CurrentSlot::<Test>::get();
-//
-// 	let make_header = || {
-// 		let parent_hash = System::parent_hash();
-// 		let pre_digest = make_secondary_plain_pre_digest(offender_authority_index, slot);
-// 		System::initialize(&current_block, &parent_hash, &pre_digest, InitKind::Full);
-// 		System::set_block_number(current_block);
-// 		Timestamp::set_timestamp(current_block);
-// 		System::finalize()
-// 	};
-//
-// 	// sign the header prehash and sign it, adding it to the block as the seal
-// 	// digest item
-// 	let seal_header = |header: &mut Header| {
-// 		let prehash = header.hash();
-// 		let seal = <DigestItem as CompatibleDigestItem>::babe_seal(
-// 			offender_authority_pair.sign(prehash.as_ref()),
-// 		);
-// 		header.digest_mut().push(seal);
-// 	};
-//
-// 	// generate two headers at the current block
-// 	let mut h1 = make_header();
-// 	let mut h2 = make_header();
-//
-// 	seal_header(&mut h1);
-// 	seal_header(&mut h2);
-//
-// 	// restore previous runtime state
-// 	go_to_block(current_block, *current_slot);
-//
-// 	sp_consensus_poc::EquivocationProof {
-// 		slot,
-// 		offender: offender_authority_pair.public(),
-// 		first_header: h1,
-// 		second_header: h2,
-// 	}
-// }
+/// Creates an equivocation at the current block, by generating two headers.
+pub fn generate_equivocation_proof(
+    offender_authority_index: u32,
+    offender_authority_pair: &AuthorityPair,
+    slot: Slot,
+) -> sp_consensus_poc::EquivocationProof<Header> {
+    use sp_consensus_poc::digests::CompatibleDigestItem;
+
+    let current_block = System::block_number();
+    let current_slot = CurrentSlot::<Test>::get();
+
+    let make_header = || {
+        let parent_hash = System::parent_hash();
+        let pre_digest = make_secondary_plain_pre_digest(offender_authority_index, slot);
+        System::initialize(&current_block, &parent_hash, &pre_digest, InitKind::Full);
+        System::set_block_number(current_block);
+        Timestamp::set_timestamp(current_block);
+        System::finalize()
+    };
+
+    // sign the header prehash and sign it, adding it to the block as the seal
+    // digest item
+    let seal_header = |header: &mut Header| {
+        let prehash = header.hash();
+        let seal = <DigestItem as CompatibleDigestItem>::babe_seal(
+            offender_authority_pair.sign(prehash.as_ref()),
+        );
+        header.digest_mut().push(seal);
+    };
+
+    // generate two headers at the current block
+    let mut h1 = make_header();
+    let mut h2 = make_header();
+
+    seal_header(&mut h1);
+    seal_header(&mut h2);
+
+    // restore previous runtime state
+    go_to_block(current_block, *current_slot);
+
+    sp_consensus_poc::EquivocationProof {
+        slot,
+        offender: offender_authority_pair.public(),
+        first_header: h1,
+        second_header: h2,
+    }
+}

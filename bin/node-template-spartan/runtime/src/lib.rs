@@ -38,6 +38,7 @@ pub use sp_runtime::{Perbill, Permill};
 
 /// Import the template pallet.
 pub use pallet_template_spartan;
+use sp_consensus_poc::FarmerId;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -251,21 +252,7 @@ impl pallet_spartan::Config for Runtime {
     type EraChangeTrigger = pallet_spartan::NormalEraChange;
     type EonChangeTrigger = pallet_spartan::NormalEonChange;
 
-    // TODO: fix for milestone 3
-    // type KeyOwnerProofSystem = Historical;
-
-    // type KeyOwnerProof = <Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(
-    // 	KeyTypeId,
-    // 	pallet_spartan::FarmerId,
-    // )>>::Proof;
-    //
-    // type KeyOwnerIdentification = <Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(
-    // 	KeyTypeId,
-    // 	pallet_spartan::FarmerId,
-    // )>>::IdentificationTuple;
-    //
-    // type HandleEquivocation =
-    // pallet_spartan::EquivocationHandler<Self::KeyOwnerIdentification, Offences>;
+    type HandleEquivocation = pallet_spartan::EquivocationHandler<FarmerId, Offences>;
 
     type WeightInfo = ();
 }
@@ -315,6 +302,18 @@ impl pallet_sudo::Config for Runtime {
     type Call = Call;
 }
 
+parameter_types! {
+    pub OffencesWeightSoftLimit: Weight = Perbill::from_percent(60) *
+        BlockWeights::get().max_block;
+}
+
+impl pallet_offences::Config for Runtime {
+    type Event = Event;
+    type IdentificationTuple = ();
+    type OnOffenceHandler = PoC;
+    type WeightSoftLimit = OffencesWeightSoftLimit;
+}
+
 /// Configure the pallet-template in pallets/template.
 impl pallet_template_spartan::Config for Runtime {
     type Event = Event;
@@ -334,6 +333,7 @@ construct_runtime!(
         Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
         TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
         Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
+        Offences: pallet_offences::{Pallet, Call, Storage, Event},
         // Include the custom logic from the pallet-template in the runtime.
         TemplateModule: pallet_template_spartan::{Pallet, Call, Storage, Event<T>},
     }
@@ -469,20 +469,13 @@ impl_runtime_apis! {
             PoC::next_epoch()
         }
 
-        // TODO: fix for milestone 3
-        // fn submit_report_equivocation_unsigned_extrinsic(
-        // 	equivocation_proof: sp_consensus_poc::EquivocationProof<<Block as BlockT>::Header>,
-        // 	key_owner_proof: sp_consensus_poc::OpaqueKeyOwnershipProof,
-        // ) -> Option<()> {
-        // 	let key_owner_proof = key_owner_proof.decode()?;
-        //
-        //
-            // PoC::submit_unsigned_equivocation_report(
-            // 	equivocation_proof,
-            // 	key_owner_proof,
-            // )
-        // 	None
-        // }
+        fn submit_report_equivocation_unsigned_extrinsic(
+            equivocation_proof: sp_consensus_poc::EquivocationProof<<Block as BlockT>::Header>,
+        ) -> Option<()> {
+            PoC::submit_unsigned_equivocation_report(
+                equivocation_proof,
+            )
+        }
     }
 
     impl sp_session::SessionKeys<Block> for Runtime {

@@ -4466,6 +4466,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "hex-literal",
  "pallet-balances",
+ "pallet-offences",
  "pallet-randomness-collective-flip",
  "pallet-session",
  "pallet-spartan",
