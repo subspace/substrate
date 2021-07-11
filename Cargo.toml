@@ -104,6 +104,7 @@ members = [
 	"frame/nicks",
 	"frame/node-authorization",
 	"frame/offences",
+	"frame/offences-poc",
 	"frame/spartan",
 	"frame/proxy",
 	"frame/randomness-collective-flip",
