@@ -336,7 +336,7 @@ construct_runtime!(
         System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
         RandomnessCollectiveFlip: pallet_randomness_collective_flip::{Pallet, Call, Storage},
         Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
-        PoC: pallet_spartan::{Pallet, Call, Storage, Config},
+        PoC: pallet_spartan::{Pallet, Call, Storage, Config, ValidateUnsigned},
         Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
         TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
         Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
