@@ -31,7 +31,7 @@ num-traits = { version = "0.2.8", default-features = false }
 
 [dev-dependencies]
 pallet-balances = { version = "3.0.0", path = "../balances" }
-pallet-offences = { version = "3.0.0", path = "../offences" }
+pallet-offences-poc = { version = "0.1.0", path = "../offences-poc" }
 pallet-staking = { version = "3.0.0", path = "../staking" }
 pallet-staking-reward-curve = { version = "3.0.0", path = "../staking/reward-curve" }
 sp-core = { version = "3.0.0", path = "../../primitives/core" }

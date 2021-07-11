@@ -4466,7 +4466,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "hex-literal",
  "pallet-balances",
- "pallet-offences",
+ "pallet-offences-poc",
  "pallet-randomness-collective-flip",
  "pallet-session",
  "pallet-spartan",
@@ -5318,7 +5318,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-offences-poc"
-version = "3.0.0"
+version = "0.1.0"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -5326,10 +5326,10 @@ dependencies = [
  "pallet-balances",
  "parity-scale-codec",
  "serde",
+ "sp-consensus-poc",
  "sp-core",
  "sp-io",
  "sp-runtime",
- "sp-staking",
  "sp-std",
 ]
 
@@ -5480,7 +5480,7 @@ dependencies = [
  "num-traits",
  "pallet-authorship",
  "pallet-balances",
- "pallet-offences",
+ "pallet-offences-poc",
  "pallet-staking",
  "pallet-staking-reward-curve",
  "pallet-timestamp",

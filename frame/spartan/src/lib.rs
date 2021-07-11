@@ -24,7 +24,7 @@
 use codec::{Decode, Encode};
 use frame_support::{
     dispatch::DispatchResultWithPostInfo,
-    traits::{Get, KeyOwnerProofSystem, OnTimestampSet},
+    traits::{Get, OnTimestampSet},
     weights::{Pays, Weight},
 };
 #[cfg(not(feature = "std"))]
@@ -37,7 +37,6 @@ pub use sp_consensus_poc::{FarmerId, RANDOMNESS_LENGTH};
 use sp_runtime::{
     generic::DigestItem,
     traits::{One, SaturatedConversion, Saturating, Zero},
-    KeyTypeId,
 };
 use sp_std::prelude::*;
 

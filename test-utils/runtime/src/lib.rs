@@ -572,6 +572,8 @@ impl pallet_spartan::Config for Runtime {
 	type EraChangeTrigger = pallet_spartan::NormalEraChange;
 	type EonChangeTrigger = pallet_spartan::NormalEonChange;
 
+	type HandleEquivocation = pallet_spartan::EquivocationHandler<FarmerId, Offences>;
+
 	type WeightInfo = ();
 }
 

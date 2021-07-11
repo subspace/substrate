@@ -34,14 +34,14 @@
 //! definition.
 //!
 
-use frame_support::traits::{Get, KeyOwnerProofSystem};
+use frame_support::traits::Get;
 use sp_consensus_poc::offence::{Kind, Offence, OffenceError, ReportOffence};
 use sp_consensus_poc::{EquivocationProof, FarmerId, Slot};
 use sp_runtime::transaction_validity::{
     InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
     TransactionValidityError, ValidTransaction,
 };
-use sp_runtime::{DispatchResult, Perbill};
+use sp_runtime::DispatchResult;
 use sp_std::prelude::*;
 
 use crate::{Call, Config, Pallet};

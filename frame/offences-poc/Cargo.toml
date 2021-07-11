@@ -1,12 +1,12 @@
 [package]
 name = "pallet-offences-poc"
-version = "3.0.0"
+version = "0.1.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 edition = "2018"
 license = "Apache-2.0"
 homepage = "https://substrate.dev"
 repository = "https://github.com/paritytech/substrate/"
-description = "FRAME offences pallet"
+description = "FRAME offences-poc pallet"
 readme = "README.md"
 
 [package.metadata.docs.rs]
@@ -18,7 +18,7 @@ codec = { package = "parity-scale-codec", version = "2.0.0", default-features = 
 sp-std = { version = "3.0.0", default-features = false, path = "../../primitives/std" }
 serde = { version = "1.0.101", optional = true }
 sp-runtime = { version = "3.0.0", default-features = false, path = "../../primitives/runtime" }
-sp-staking = { version = "3.0.0", default-features = false, path = "../../primitives/staking" }
+sp-consensus-poc = { version = "0.1.0", default-features = false, path = "../../primitives/consensus/poc" }
 frame-support = { version = "3.0.0", default-features = false, path = "../support" }
 frame-system = { version = "3.0.0", default-features = false, path = "../system" }
 log = { version = "0.4.14", default-features = false }
@@ -35,10 +35,9 @@ std = [
 	"sp-std/std",
 	"serde",
 	"sp-runtime/std",
-	"sp-staking/std",
+	"sp-consensus-poc/std",
 	"frame-support/std",
 	"frame-system/std",
 	"log/std",
 ]
-runtime-benchmarks = []
 try-runtime = ["frame-support/try-runtime"]

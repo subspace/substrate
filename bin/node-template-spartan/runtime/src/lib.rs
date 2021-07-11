@@ -302,14 +302,21 @@ impl pallet_sudo::Config for Runtime {
     type Call = Call;
 }
 
+impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime
+where
+    Call: From<C>,
+{
+    type Extrinsic = UncheckedExtrinsic;
+    type OverarchingCall = Call;
+}
+
 parameter_types! {
     pub OffencesWeightSoftLimit: Weight = Perbill::from_percent(60) *
         BlockWeights::get().max_block;
 }
 
-impl pallet_offences::Config for Runtime {
+impl pallet_offences_poc::Config for Runtime {
     type Event = Event;
-    type IdentificationTuple = ();
     type OnOffenceHandler = PoC;
     type WeightSoftLimit = OffencesWeightSoftLimit;
 }
@@ -333,7 +340,7 @@ construct_runtime!(
         Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
         TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
         Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
-        Offences: pallet_offences::{Pallet, Call, Storage, Event},
+        Offences: pallet_offences_poc::{Pallet, Call, Storage, Event},
         // Include the custom logic from the pallet-template in the runtime.
         TemplateModule: pallet_template_spartan::{Pallet, Call, Storage, Event<T>},
     }
