@@ -38,7 +38,6 @@ pub use sp_runtime::{Perbill, Permill};
 
 /// Import the template pallet.
 pub use pallet_template_spartan;
-use sp_consensus_poc::FarmerId;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -239,6 +238,7 @@ parameter_types! {
     pub const InitialSolutionRange: u64 = INITIAL_SOLUTION_RANGE;
     pub const SlotProbability: (u64, u64) = SLOT_PROBABILITY;
     pub const ExpectedBlockTime: Moment = MILLISECS_PER_BLOCK;
+    pub const ReportLongevity: u64 = EPOCH_DURATION_IN_BLOCKS as u64;
 }
 
 impl pallet_spartan::Config for Runtime {
@@ -252,7 +252,7 @@ impl pallet_spartan::Config for Runtime {
     type EraChangeTrigger = pallet_spartan::NormalEraChange;
     type EonChangeTrigger = pallet_spartan::NormalEonChange;
 
-    type HandleEquivocation = pallet_spartan::EquivocationHandler<FarmerId, Offences>;
+    type HandleEquivocation = pallet_spartan::EquivocationHandler<OffencesPoC, ReportLongevity>;
 
     type WeightInfo = ();
 }
@@ -317,7 +317,7 @@ parameter_types! {
 
 impl pallet_offences_poc::Config for Runtime {
     type Event = Event;
-    type OnOffenceHandler = PoC;
+    type OnOffenceHandler = ();
     type WeightSoftLimit = OffencesWeightSoftLimit;
 }
 
@@ -340,7 +340,7 @@ construct_runtime!(
         Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
         TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
         Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
-        Offences: pallet_offences_poc::{Pallet, Call, Storage, Event},
+        OffencesPoC: pallet_offences_poc::{Pallet, Call, Storage, Event},
         // Include the custom logic from the pallet-template in the runtime.
         TemplateModule: pallet_template_spartan::{Pallet, Call, Storage, Event<T>},
     }

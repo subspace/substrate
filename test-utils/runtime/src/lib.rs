@@ -572,7 +572,7 @@ impl pallet_spartan::Config for Runtime {
 	type EraChangeTrigger = pallet_spartan::NormalEraChange;
 	type EonChangeTrigger = pallet_spartan::NormalEonChange;
 
-	type HandleEquivocation = pallet_spartan::EquivocationHandler<FarmerId, Offences>;
+	type HandleEquivocation = ();
 
 	type WeightInfo = ();
 }
@@ -870,6 +870,14 @@ cfg_if! {
 				fn next_epoch() -> sp_consensus_poc::Epoch {
 					<pallet_spartan::Pallet<Runtime>>::next_epoch()
 				}
+
+				fn submit_report_equivocation_unsigned_extrinsic(
+					_equivocation_proof: sp_consensus_poc::EquivocationProof<
+						<Block as BlockT>::Header,
+					>,
+				) -> Option<()> {
+					None
+				}
 			}
 
 			impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
@@ -1162,6 +1170,14 @@ cfg_if! {
 
 				fn next_epoch() -> sp_consensus_poc::Epoch {
 					<pallet_spartan::Pallet<Runtime>>::next_epoch()
+				}
+
+				fn submit_report_equivocation_unsigned_extrinsic(
+					_equivocation_proof: sp_consensus_poc::EquivocationProof<
+						<Block as BlockT>::Header,
+					>,
+				) -> Option<()> {
+					None
 				}
 			}
 
