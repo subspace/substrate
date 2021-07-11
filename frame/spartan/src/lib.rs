@@ -48,7 +48,6 @@ mod equivocation;
 mod benchmarking;
 #[cfg(all(feature = "std", test))]
 mod mock;
-mod offence;
 #[cfg(all(feature = "std", test))]
 mod tests;
 

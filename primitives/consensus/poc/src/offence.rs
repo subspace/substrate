@@ -22,7 +22,6 @@
 use sp_std::vec::Vec;
 
 use codec::{Decode, Encode};
-use sp_runtime::Perbill;
 
 /// The kind of an offence, is a byte string representing some kind identifier
 /// e.g. `b"poc:equivocation"`
@@ -110,27 +109,17 @@ impl<Offender, O: Offence<Offender>> ReportOffence<Offender, O> for () {
 ///
 /// Used to decouple the module that handles offences and
 /// the one that should punish for those offences.
-pub trait OnOffenceHandler<Reporter, Offender, Res> {
+pub trait OnOffenceHandler<Offender, Res> {
     /// A handler for an offence of a particular kind.
     ///
     /// Note that this contains a list of all previous offenders
     /// as well. The implementer should cater for a case, where
-    /// the same authorities were reported for the same offence
+    /// the same farmers were reported for the same offence
     /// in the past (see `OffenceCount`).
-    ///
-    /// The vector of `slash_fraction` contains `Perbill`s
-    /// the authorities should be slashed and is computed
-    /// according to the `OffenceCount` already. This is of the same length as `offenders.`
-    /// Zero is a valid value for a fraction.
-    ///
-    /// The `session` parameter is the session index of the offence.
     ///
     /// The receiver might decide to not accept this offence. In this case, the call site is
     /// responsible for queuing the report and re-submitting again.
-    fn on_offence(
-        offenders: &[OffenceDetails<Reporter, Offender>],
-        slash_fraction: &[Perbill],
-    ) -> Result<Res, ()>;
+    fn on_offence(offenders: &[OffenceDetails<Offender>]) -> Result<Res, ()>;
 
     /// Can an offence be reported now or not. This is an method to short-circuit a call into
     /// `on_offence`. Ideally, a correct implementation should return `false` if `on_offence` will
@@ -139,11 +128,8 @@ pub trait OnOffenceHandler<Reporter, Offender, Res> {
     fn can_report() -> bool;
 }
 
-impl<Reporter, Offender, Res: Default> OnOffenceHandler<Reporter, Offender, Res> for () {
-    fn on_offence(
-        _offenders: &[OffenceDetails<Reporter, Offender>],
-        _slash_fraction: &[Perbill],
-    ) -> Result<Res, ()> {
+impl<Offender, Res: Default> OnOffenceHandler<Offender, Res> for () {
+    fn on_offence(_offenders: &[OffenceDetails<Offender>]) -> Result<Res, ()> {
         Ok(Default::default())
     }
 
@@ -154,10 +140,7 @@ impl<Reporter, Offender, Res: Default> OnOffenceHandler<Reporter, Offender, Res>
 
 /// A details about an offending authority for a particular kind of offence.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, sp_runtime::RuntimeDebug)]
-pub struct OffenceDetails<Reporter, Offender> {
+pub struct OffenceDetails<Offender> {
     /// The offending authority id
     pub offender: Offender,
-    /// A list of reporters of offences of this authority ID. Possibly empty where there are no
-    /// particular reporters.
-    pub reporters: Vec<Reporter>,
 }

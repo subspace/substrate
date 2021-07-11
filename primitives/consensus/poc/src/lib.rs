@@ -21,6 +21,7 @@
 
 pub mod digests;
 pub mod inherents;
+pub mod offence;
 
 pub use sp_consensus_spartan::{Randomness, RANDOMNESS_LENGTH};
 
