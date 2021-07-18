@@ -54,6 +54,7 @@ pub use equivocation::{EquivocationHandler, HandleEquivocation, PoCEquivocationO
 
 pub use pallet::*;
 use sp_consensus_poc::digests::NextSaltDescriptor;
+use sp_consensus_poc::offence::{OffenceDetails, OnOffenceHandler};
 
 pub trait WeightInfo {
     fn plan_config_change() -> Weight;
@@ -321,6 +322,10 @@ pub mod pallet {
     /// (you can fallback to `EpochConfig` instead in that case).
     #[pallet::storage]
     pub(super) type NextEpochConfig<T> = StorageValue<_, PoCEpochConfiguration>;
+
+    /// A set of blocked farmers keyed by their public key.
+    #[pallet::storage]
+    pub(super) type BlockList<T> = StorageMap<_, Twox64Concat, FarmerId, ()>;
 
     #[pallet::genesis_config]
     pub struct GenesisConfig {
@@ -818,6 +823,11 @@ impl<T: Config> Pallet<T> {
     ) -> Option<()> {
         T::HandleEquivocation::submit_unsigned_equivocation_report(equivocation_proof).ok()
     }
+
+    /// Check if `farmer_id` is in block list (due to equivocation)
+    pub fn is_in_block_list(farmer_id: &FarmerId) -> bool {
+        BlockList::<T>::contains_key(farmer_id)
+    }
 }
 
 impl<T: Config> OnTimestampSet<T::Moment> for Pallet<T> {
@@ -846,6 +856,14 @@ impl<T: Config> frame_support::traits::Lateness<T::BlockNumber> for Pallet<T> {
 
 impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
     type Public = FarmerId;
+}
+
+impl<T: Config> OnOffenceHandler<FarmerId> for Pallet<T> {
+    fn on_offence(offenders: &[OffenceDetails<FarmerId>]) {
+        for offender in offenders {
+            BlockList::<T>::insert(offender.offender.clone(), ());
+        }
+    }
 }
 
 // Compute randomness for a new epoch. rho is the concatenation of all

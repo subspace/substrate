@@ -878,6 +878,10 @@ cfg_if! {
 				) -> Option<()> {
 					None
 				}
+
+				fn is_in_block_list(farmer_id: &sp_consensus_poc::FarmerId) -> bool {
+					<pallet_spartan::Pallet<Runtime>>::is_in_block_list(farmer_id)
+				}
 			}
 
 			impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
@@ -1178,6 +1182,10 @@ cfg_if! {
 					>,
 				) -> Option<()> {
 					None
+				}
+
+				fn is_in_block_list(farmer_id: &sp_consensus_poc::FarmerId) -> bool {
+					<pallet_spartan::Pallet<Runtime>>::is_in_block_list(farmer_id)
 				}
 			}
 

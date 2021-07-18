@@ -285,5 +285,8 @@ sp_api::decl_runtime_apis! {
         fn submit_report_equivocation_unsigned_extrinsic(
             equivocation_proof: EquivocationProof<Block::Header>,
         ) -> Option<()>;
+
+        /// Check if `farmer_id` is in block list (due to equivocation)
+        fn is_in_block_list(farmer_id: &FarmerId) -> bool;
     }
 }

@@ -317,7 +317,7 @@ parameter_types! {
 
 impl pallet_offences_poc::Config for Runtime {
     type Event = Event;
-    type OnOffenceHandler = ();
+    type OnOffenceHandler = PoC;
     type WeightSoftLimit = OffencesWeightSoftLimit;
 }
 
@@ -482,6 +482,10 @@ impl_runtime_apis! {
             PoC::submit_unsigned_equivocation_report(
                 equivocation_proof,
             )
+        }
+
+        fn is_in_block_list(farmer_id: &sp_consensus_poc::FarmerId) -> bool {
+            PoC::is_in_block_list(farmer_id)
         }
     }
 

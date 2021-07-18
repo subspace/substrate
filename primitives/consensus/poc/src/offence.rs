@@ -109,33 +109,18 @@ impl<Offender, O: Offence<Offender>> ReportOffence<Offender, O> for () {
 ///
 /// Used to decouple the module that handles offences and
 /// the one that should punish for those offences.
-pub trait OnOffenceHandler<Offender, Res> {
+pub trait OnOffenceHandler<Offender> {
     /// A handler for an offence of a particular kind.
     ///
     /// Note that this contains a list of all previous offenders
     /// as well. The implementer should cater for a case, where
     /// the same farmers were reported for the same offence
     /// in the past (see `OffenceCount`).
-    ///
-    /// The receiver might decide to not accept this offence. In this case, the call site is
-    /// responsible for queuing the report and re-submitting again.
-    fn on_offence(offenders: &[OffenceDetails<Offender>]) -> Result<Res, ()>;
-
-    /// Can an offence be reported now or not. This is an method to short-circuit a call into
-    /// `on_offence`. Ideally, a correct implementation should return `false` if `on_offence` will
-    /// return `Err`. Nonetheless, this is up to the implementation and this trait cannot guarantee
-    /// it.
-    fn can_report() -> bool;
+    fn on_offence(offenders: &[OffenceDetails<Offender>]);
 }
 
-impl<Offender, Res: Default> OnOffenceHandler<Offender, Res> for () {
-    fn on_offence(_offenders: &[OffenceDetails<Offender>]) -> Result<Res, ()> {
-        Ok(Default::default())
-    }
-
-    fn can_report() -> bool {
-        true
-    }
+impl<Offender> OnOffenceHandler<Offender> for () {
+    fn on_offence(_offenders: &[OffenceDetails<Offender>]) {}
 }
 
 /// A details about an offending authority for a particular kind of offence.
