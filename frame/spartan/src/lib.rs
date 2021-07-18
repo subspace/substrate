@@ -43,8 +43,6 @@ use sp_std::prelude::*;
 mod default_weights;
 mod equivocation;
 
-#[cfg(any(feature = "runtime-benchmarks", test))]
-mod benchmarking;
 #[cfg(all(feature = "std", test))]
 mod mock;
 #[cfg(all(feature = "std", test))]
