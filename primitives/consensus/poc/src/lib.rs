@@ -195,16 +195,16 @@ where
             return None;
         }
 
-        // TODO: Replace with FarmerId
-        // // both headers must have been authored by the same authority
-        // if first_pre_digest.authority_index() != second_pre_digest.authority_index() {
-        // 	return None;
-        // }
+        // both headers must have been authored by the same farmer
+        if first_pre_digest.solution.public_key != second_pre_digest.solution.public_key {
+            return None;
+        }
 
         // we finally verify that the expected farmer has signed both headers and
         // that the signature is valid.
-        verify_seal_signature(proof.first_header, &proof.offender)?;
-        verify_seal_signature(proof.second_header, &proof.offender)?;
+        // TODO: Replace `let _ = X;` with `X?;` once we have proper signatures on blocks
+        let _ = verify_seal_signature(proof.first_header, &proof.offender);
+        let _ = verify_seal_signature(proof.second_header, &proof.offender);
 
         Some(())
     };
