@@ -68,7 +68,6 @@ pub trait HandleEquivocation<T: Config> {
     ) -> DispatchResult;
 }
 
-// TODO: Probably remove this
 impl<T: Config> HandleEquivocation<T> for () {
     type ReportLongevity = ();
 
@@ -204,16 +203,6 @@ impl<T: Config> frame_support::unsigned::ValidateUnsigned for Pallet<T> {
 fn is_known_offence<T: Config>(
     equivocation_proof: &EquivocationProof<T::Header>,
 ) -> Result<(), TransactionValidityError> {
-    // TODO: This doesn't look right, but let's try for now
-    // check the membership proof to extract the offender's id
-    // let key = (
-    //     sp_consensus_poc::KEY_TYPE,
-    //     equivocation_proof.offender.clone(),
-    // );
-    //
-    // let offender = T::KeyOwnerProofSystem::check_proof(key, key_owner_proof.clone())
-    //     .ok_or(InvalidTransaction::BadProof)?;
-
     // check if the offence has already been reported,
     // and if so then we can discard the report.
     if T::HandleEquivocation::is_known_offence(

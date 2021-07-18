@@ -239,8 +239,8 @@ fn reports_if_an_offence_is_dup() {
         // and reporting it again should work without any error
         assert_eq!(Offences::report_offence(test_offence.clone()), Ok(()));
 
-        // creating a new offence for the same authorities on the next slot
-        // should be considered a new offence and thefore not known
+        // creating a new offence for the same farmers on the next slot
+        // should be considered a new offence and therefore not known
         let test_offence_next_slot = offence(time_slot + 1, vec![farmer_0, farmer_1]);
         assert!(
             !<Offences as ReportOffence<_, TestOffence>>::is_known_offence(
@@ -253,7 +253,7 @@ fn reports_if_an_offence_is_dup() {
 
 #[test]
 fn should_properly_count_offences() {
-    // We report two different authorities for the same issue. Ultimately, the 1st farmer
+    // We report two different farmers for the same issue. Ultimately, the 1st farmer
     // should have `count` equal 2 and the count of the 2nd one should be equal to 1.
     new_test_ext().execute_with(|| {
         // given

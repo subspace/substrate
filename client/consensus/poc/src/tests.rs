@@ -953,38 +953,3 @@ fn verify_slots_are_strictly_increasing() {
         &mut block_import,
     );
 }
-
-// TODO: fix for milestone 3
-// #[test]
-// fn babe_transcript_generation_match() {
-// 	sp_tracing::try_init_simple();
-// 	let keystore_path = tempfile::tempdir().expect("Creates keystore path");
-// 	let keystore: SyncCryptoStorePtr = Arc::new(LocalKeystore::open(keystore_path.path(), None)
-// 		.expect("Creates keystore"));
-// 	let public = SyncCryptoStore::sr25519_generate_new(&*keystore, BABE, Some("//Alice"))
-// 		.expect("Generates authority pair");
-//
-// 	let epoch = Epoch {
-// 		start_slot: 0.into(),
-// 		authorities: vec![(public.into(), 1)],
-// 		randomness: [0; 32],
-// 		epoch_index: 1,
-// 		duration: 100,
-// 		config: BabeEpochConfiguration {
-// 			c: (3, 10),
-// 			allowed_slots: AllowedSlots::PrimaryAndSecondaryPlainSlots,
-// 		},
-// 	};
-//
-// 	let orig_transcript = make_transcript(&epoch.randomness.clone(), 1.into(), epoch.epoch_index);
-// 	let new_transcript = make_transcript_data(&epoch.randomness, 1.into(), epoch.epoch_index);
-//
-// 	let test = |t: merlin::Transcript| -> [u8; 16] {
-// 		let mut b = [0u8; 16];
-// 		t.build_rng()
-// 			.finalize(&mut ChaChaRng::from_seed([0u8;32]))
-// 			.fill_bytes(&mut b);
-// 		b
-// 	};
-// 	debug_assert!(test(orig_transcript) == test(transcript_from_data(new_transcript)));
-// }

@@ -28,8 +28,6 @@ pub use sp_consensus_spartan::{Randomness, RANDOMNESS_LENGTH};
 use codec::{Decode, Encode};
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "std")]
-use sp_keystore::vrf::{VRFTranscriptData, VRFTranscriptValue};
 use sp_runtime::{traits::Header, ConsensusEngineId, RuntimeDebug};
 use sp_std::vec::Vec;
 
@@ -67,23 +65,6 @@ pub type EquivocationProof<H> = sp_consensus_slots::EquivocationProof<H, FarmerI
 
 /// The weight of a PoC block.
 pub type PoCBlockWeight = u32;
-
-// TODO: Maybe remove after milestone 3
-/// Make a PoR transcript data container
-#[cfg(feature = "std")]
-pub fn make_transcript_data(randomness: &Randomness, slot: Slot, epoch: u64) -> VRFTranscriptData {
-    VRFTranscriptData {
-        label: &POC_ENGINE_ID,
-        items: vec![
-            ("slot number", VRFTranscriptValue::U64(*slot)),
-            ("current epoch", VRFTranscriptValue::U64(epoch)),
-            (
-                "chain randomness",
-                VRFTranscriptValue::Bytes(randomness.to_vec()),
-            ),
-        ],
-    }
-}
 
 /// An consensus log item for PoC.
 #[derive(Decode, Encode, Clone, PartialEq, Eq)]

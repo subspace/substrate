@@ -8902,7 +8902,6 @@ dependencies = [
  "sp-consensus-spartan",
  "sp-core",
  "sp-inherents",
- "sp-keystore",
  "sp-runtime",
  "sp-std",
  "sp-timestamp",
