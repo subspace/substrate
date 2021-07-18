@@ -1,11 +1,11 @@
 [package]
 name = "pallet-offences-poc"
 version = "0.1.0"
-authors = ["Parity Technologies <admin@parity.io>"]
+authors = ["Parity Technologies <admin@parity.io>", "Subspace Labs <admin@subspace.network>"]
 edition = "2018"
 license = "Apache-2.0"
-homepage = "https://substrate.dev"
-repository = "https://github.com/paritytech/substrate/"
+homepage = "https://subspace.network"
+repository = "https://github.com/subspace/substrate"
 description = "FRAME offences-poc pallet"
 readme = "README.md"
 
