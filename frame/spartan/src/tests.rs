@@ -18,8 +18,10 @@
 
 //! Consensus extension module tests for Spartan consensus.
 
-use super::*;
-use frame_support::{assert_err, assert_noop, traits::OnFinalize};
+use super::{Call, *};
+use frame_support::{
+    assert_err, assert_noop, assert_ok, traits::OnFinalize, weights::GetDispatchInfo,
+};
 use mock::*;
 use schnorrkel::Keypair;
 use sp_consensus_poc::digests::Solution;
@@ -427,171 +429,119 @@ fn report_equivocation_invalid_equivocation_proof() {
     })
 }
 
-// #[test]
-// fn report_equivocation_validate_unsigned_prevents_duplicates() {
-// 	use sp_runtime::transaction_validity::{
-// 		InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
-// 		ValidTransaction,
-// 	};
-//
-// 	let (pairs, mut ext) = new_test_ext_with_pairs(3);
-//
-// 	ext.execute_with(|| {
-// 		start_era(1);
-//
-// 		let authorities = Spartan::authorities();
-//
-// 		// generate and report an equivocation for the validator at index 0
-// 		let offending_validator_index = 0;
-// 		let offending_authority_pair = pairs
-// 			.into_iter()
-// 			.find(|p| p.public() == authorities[offending_validator_index].0)
-// 			.unwrap();
-//
-// 		let equivocation_proof = generate_equivocation_proof(
-// 			offending_validator_index as u32,
-// 			&offending_authority_pair,
-// 			CurrentSlot::<Test>::get(),
-// 		);
-//
-// 		let key = (
-// 			sp_consensus_poc::KEY_TYPE,
-// 			&offending_authority_pair.public(),
-// 		);
-// 		let key_owner_proof = Historical::prove(key).unwrap();
-//
-// 		let inner =
-// 			Call::report_equivocation_unsigned(equivocation_proof.clone(), key_owner_proof.clone());
-//
-// 		// only local/inblock reports are allowed
-// 		assert_eq!(
-// 			<Babe as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
-// 				TransactionSource::External,
-// 				&inner,
-// 			),
-// 			InvalidTransaction::Call.into(),
-// 		);
-//
-// 		// the transaction is valid when passed as local
-// 		let tx_tag = (offending_authority_pair.public(), CurrentSlot::<Test>::get());
-// 		assert_eq!(
-// 			<Babe as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
-// 				TransactionSource::Local,
-// 				&inner,
-// 			),
-// 			TransactionValidity::Ok(ValidTransaction {
-// 				priority: TransactionPriority::max_value(),
-// 				requires: vec![],
-// 				provides: vec![("BabeEquivocation", tx_tag).encode()],
-// 				longevity: ReportLongevity::get(),
-// 				propagate: false,
-// 			})
-// 		);
-//
-// 		// the pre dispatch checks should also pass
-// 		assert_ok!(<Babe as sp_runtime::traits::ValidateUnsigned>::pre_dispatch(&inner));
-//
-// 		// we submit the report
-// 		Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof, key_owner_proof)
-// 			.unwrap();
-//
-// 		// the report should now be considered stale and the transaction is invalid.
-// 		// the check for staleness should be done on both `validate_unsigned` and on `pre_dispatch`
-// 		assert_err!(
-// 			<Babe as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
-// 				TransactionSource::Local,
-// 				&inner,
-// 			),
-// 			InvalidTransaction::Stale,
-// 		);
-//
-// 		assert_err!(
-// 			<Babe as sp_runtime::traits::ValidateUnsigned>::pre_dispatch(&inner),
-// 			InvalidTransaction::Stale,
-// 		);
-// 	});
-// }
-//
-// #[test]
-// fn report_equivocation_has_valid_weight() {
-// 	// the weight depends on the size of the validator set,
-// 	// but there's a lower bound of 100 validators.
-// 	assert!(
-// 		(1..=100)
-// 			.map(<Test as Config>::WeightInfo::report_equivocation)
-// 			.collect::<Vec<_>>()
-// 			.windows(2)
-// 			.all(|w| w[0] == w[1])
-// 	);
-//
-// 	// after 100 validators the weight should keep increasing
-// 	// with every extra validator.
-// 	assert!(
-// 		(100..=1000)
-// 			.map(<Test as Config>::WeightInfo::report_equivocation)
-// 			.collect::<Vec<_>>()
-// 			.windows(2)
-// 			.all(|w| w[0] < w[1])
-// 	);
-// }
-//
-// #[test]
-// fn valid_equivocation_reports_dont_pay_fees() {
-// 	let (pairs, mut ext) = new_test_ext_with_pairs(3);
-//
-// 	ext.execute_with(|| {
-// 		start_era(1);
-//
-// 		let offending_authority_pair = &pairs[0];
-//
-// 		// generate an equivocation proof.
-// 		let equivocation_proof =
-// 			generate_equivocation_proof(0, &offending_authority_pair, CurrentSlot::<Test>::get());
-//
-// 		// create the key ownership proof.
-// 		let key_owner_proof = Historical::prove((
-// 			sp_consensus_poc::KEY_TYPE,
-// 			&offending_authority_pair.public(),
-// 		))
-// 		.unwrap();
-//
-// 		// check the dispatch info for the call.
-// 		let info = Call::<Test>::report_equivocation_unsigned(
-// 			equivocation_proof.clone(),
-// 			key_owner_proof.clone(),
-// 		)
-// 		.get_dispatch_info();
-//
-// 		// it should have non-zero weight and the fee has to be paid.
-// 		assert!(info.weight > 0);
-// 		assert_eq!(info.pays_fee, Pays::Yes);
-//
-// 		// report the equivocation.
-// 		let post_info = Spartan::report_equivocation_unsigned(
-// 			Origin::none(),
-// 			equivocation_proof.clone(),
-// 			key_owner_proof.clone(),
-// 		)
-// 		.unwrap();
-//
-// 		// the original weight should be kept, but given that the report
-// 		// is valid the fee is waived.
-// 		assert!(post_info.actual_weight.is_none());
-// 		assert_eq!(post_info.pays_fee, Pays::No);
-//
-// 		// report the equivocation again which is invalid now since it is
-// 		// duplicate.
-// 		let post_info =
-// 			Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof, key_owner_proof)
-// 				.err()
-// 				.unwrap()
-// 				.post_info;
-//
-// 		// the fee is not waived and the original weight is kept.
-// 		assert!(post_info.actual_weight.is_none());
-// 		assert_eq!(post_info.pays_fee, Pays::Yes);
-// 	})
-// }
+#[test]
+fn report_equivocation_validate_unsigned_prevents_duplicates() {
+    use sp_runtime::transaction_validity::{
+        InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
+        ValidTransaction,
+    };
+
+    new_test_ext().execute_with(|| {
+        progress_to_block(1);
+
+        let keypair = Keypair::generate();
+        let farmer_id = FarmerId::from_slice(&keypair.public.to_bytes());
+
+        let equivocation_proof = generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
+
+        let inner = Call::report_equivocation_unsigned(equivocation_proof.clone());
+
+        // only local/inblock reports are allowed
+        assert_eq!(
+            <Spartan as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+                TransactionSource::External,
+                &inner,
+            ),
+            InvalidTransaction::Call.into(),
+        );
+
+        // the transaction is valid when passed as local
+        let tx_tag = (farmer_id, CurrentSlot::<Test>::get());
+        assert_eq!(
+            <Spartan as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+                TransactionSource::Local,
+                &inner,
+            ),
+            TransactionValidity::Ok(ValidTransaction {
+                priority: TransactionPriority::max_value(),
+                requires: vec![],
+                provides: vec![("PoCEquivocation", tx_tag).encode()],
+                longevity: ReportLongevity::get(),
+                propagate: false,
+            })
+        );
+
+        // the pre dispatch checks should also pass
+        assert_ok!(<Spartan as sp_runtime::traits::ValidateUnsigned>::pre_dispatch(&inner));
+
+        // we submit the report
+        Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof).unwrap();
+
+        // the report should now be considered stale and the transaction is invalid.
+        // the check for staleness should be done on both `validate_unsigned` and on `pre_dispatch`
+        assert_err!(
+            <Spartan as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+                TransactionSource::Local,
+                &inner,
+            ),
+            InvalidTransaction::Stale,
+        );
+
+        assert_err!(
+            <Spartan as sp_runtime::traits::ValidateUnsigned>::pre_dispatch(&inner),
+            InvalidTransaction::Stale,
+        );
+    });
+}
+
+#[test]
+fn report_equivocation_has_valid_weight() {
+    // the weight is always the same.
+    assert!((1..=1000)
+        .map(|_| { <Test as Config>::WeightInfo::report_equivocation() })
+        .all(|w| w == 1));
+}
+
+#[test]
+fn valid_equivocation_reports_dont_pay_fees() {
+    new_test_ext().execute_with(|| {
+        progress_to_block(1);
+
+        let keypair = Keypair::generate();
+
+        // generate an equivocation proof.
+        let equivocation_proof = generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
+
+        // check the dispatch info for the call.
+        let info = Call::<Test>::report_equivocation_unsigned(equivocation_proof.clone())
+            .get_dispatch_info();
+
+        // it should have non-zero weight and the fee has to be paid.
+        assert!(info.weight > 0);
+        assert_eq!(info.pays_fee, Pays::Yes);
+
+        // report the equivocation.
+        let post_info =
+            Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof.clone())
+                .unwrap();
+
+        // the original weight should be kept, but given that the report
+        // is valid the fee is waived.
+        assert!(post_info.actual_weight.is_none());
+        assert_eq!(post_info.pays_fee, Pays::No);
+
+        // report the equivocation again which is invalid now since it is
+        // duplicate.
+        let post_info = Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof)
+            .err()
+            .unwrap()
+            .post_info;
+
+        // the fee is not waived and the original weight is kept.
+        assert!(post_info.actual_weight.is_none());
+        assert_eq!(post_info.pays_fee, Pays::Yes);
+    })
+}
 
 #[test]
 fn add_epoch_configurations_migration_works() {
