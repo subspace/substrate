@@ -273,6 +273,9 @@ pub enum Error<B: BlockT> {
     /// Block has no associated salt
     #[display(fmt = "Missing salt for block {}", _0)]
     MissingSalt(B::Hash),
+    /// Farmer in block list
+    #[display(fmt = "Farmer {} is in block list", _0)]
+    FarmerInBlockList(FarmerId),
     #[display(fmt = "Checking inherents failed: {}", _0)]
     /// Check Inherents error
     CheckInherents(String),
@@ -719,16 +722,9 @@ where
         let epoch_changes = self.epoch_changes.shared_data();
         let epoch = epoch_changes
             .viable_epoch(&epoch_descriptor, |slot| Epoch::genesis(&self.config, slot))?;
-        let solution_range = self
-            .client
-            .runtime_api()
-            .solution_range(&BlockId::Hash(parent_header.hash()))
-            .ok()?;
-        let salt = self
-            .client
-            .runtime_api()
-            .salt(&BlockId::Hash(parent_header.hash()))
-            .ok()?;
+        let block_id = BlockId::Hash(parent_header.hash());
+        let solution_range = self.client.runtime_api().solution_range(&block_id).ok()?;
+        let salt = self.client.runtime_api().salt(&block_id).ok()?;
 
         let (solution_sender, solution_receiver) = mpsc::channel();
 
@@ -741,6 +737,24 @@ where
         );
 
         while let Ok(solution) = solution_receiver.recv() {
+            // TODO: We need also need to check for equivocation of farmers connected to *this node*
+            //  during block import, currently farmers connected to this node are considered trusted
+            if self
+                .client
+                .runtime_api()
+                .is_in_block_list(&block_id, &solution.public_key)
+                .ok()?
+            {
+                warn!(
+                    target: "poc",
+                    "Ignoring solution for slot {} provided by farmer in block list: {}",
+                    slot,
+                    solution.public_key,
+                );
+
+                continue;
+            }
+
             match verification::verify_solution::<B>(
                 &solution,
                 epoch.as_ref(),
@@ -1246,6 +1260,21 @@ where
         let salt = find_next_salt_digest::<Block>(&header)?
             .ok_or_else(|| Error::<Block>::MissingSalt(hash))?
             .salt;
+
+        if self
+            .client
+            .runtime_api()
+            .is_in_block_list(&BlockId::Hash(parent_hash), &pre_digest.solution.public_key)
+            .map_err(Error::<Block>::RuntimeApi)?
+        {
+            warn!(
+                target: "poc",
+                "Ignoring block with solution provided by farmer in block list: {}",
+                pre_digest.solution.public_key
+            );
+
+            return Err(Error::<Block>::FarmerInBlockList(pre_digest.solution.public_key).into());
+        }
 
         // We add one to the current slot to allow for some small drift.
         // FIXME #1019 in the future, alter this queue to allow deferring of headers
