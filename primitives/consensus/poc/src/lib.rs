@@ -67,7 +67,7 @@ pub type EquivocationProof<H> = sp_consensus_slots::EquivocationProof<H, FarmerI
 pub type PoCBlockWeight = u32;
 
 /// An consensus log item for PoC.
-#[derive(Decode, Encode, Clone, PartialEq, Eq)]
+#[derive(Decode, Encode, Clone, PartialEq, Eq, RuntimeDebug)]
 pub enum ConsensusLog {
     /// The epoch has changed. This provides information about the _next_
     /// epoch - information about the _current_ epoch (i.e. the one we've just

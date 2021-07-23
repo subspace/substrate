@@ -21,10 +21,10 @@ use ring::{digest, hmac};
 use std::convert::TryInto;
 use std::io::Write;
 
-const PRIME_SIZE_BYTES: usize = 8;
-const PIECE_SIZE: usize = 4096;
-const GENESIS_PIECE_SEED: &str = "spartan";
-const ENCODE_ROUNDS: usize = 1;
+pub const PRIME_SIZE_BYTES: usize = 8;
+pub const PIECE_SIZE: usize = 4096;
+pub const GENESIS_PIECE_SEED: &str = "spartan";
+pub const ENCODE_ROUNDS: usize = 1;
 pub const SIGNING_CONTEXT: &[u8] = b"FARMER";
 
 pub type Piece = [u8; PIECE_SIZE];
