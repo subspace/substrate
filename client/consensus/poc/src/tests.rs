@@ -482,33 +482,32 @@ fn run_one_test(mutator: impl Fn(&mut TestHeader, Stage) + Send + Sync + 'static
         })
         .expect("Starts poc");
 
-        {
-            let notifier = poc_worker.get_new_slot_notifier()();
-            std::thread::spawn(move || {
-                let spartan = spartan_codec::Spartan::<PRIME_SIZE_BYTES, PIECE_SIZE>::new(
-                    genesis_piece_from_seed(GENESIS_PIECE_SEED),
-                );
-                let keypair = Keypair::generate();
-                let public_key_hash = hash_public_key(&keypair.public);
-                let ctx = schnorrkel::context::signing_context(SIGNING_CONTEXT);
-                let nonce = 0;
-                let encoding: Piece = spartan.encode(public_key_hash, nonce, ENCODE_ROUNDS);
+        let notifier = poc_worker.get_new_slot_notifier()();
+        std::thread::spawn(move || {
+            let spartan = spartan_codec::Spartan::<PRIME_SIZE_BYTES, PIECE_SIZE>::new(
+                genesis_piece_from_seed(GENESIS_PIECE_SEED),
+            );
+            let keypair = Keypair::generate();
+            let public_key_hash = hash_public_key(&keypair.public);
+            let ctx = schnorrkel::context::signing_context(SIGNING_CONTEXT);
+            let nonce = 0;
+            let encoding: Piece = spartan.encode(public_key_hash, nonce, ENCODE_ROUNDS);
 
-                while let Ok((new_slot_info, solution_sender)) = notifier.recv() {
-                    if Into::<u64>::into(new_slot_info.slot) % 3 == (*peer_id) as u64 {
-                        let tag: Tag = create_tag(&encoding, &new_slot_info.salt);
+            while let Ok((new_slot_info, solution_sender)) = notifier.recv() {
+                if Into::<u64>::into(new_slot_info.slot) % 3 == (*peer_id) as u64 {
+                    let tag: Tag = create_tag(&encoding, &new_slot_info.salt);
 
-                        let _ = solution_sender.send(Solution {
-                            public_key: FarmerId::from_slice(&keypair.public.to_bytes()),
-                            nonce,
-                            encoding: encoding.to_vec(),
-                            signature: keypair.sign(ctx.bytes(&tag)).to_bytes().to_vec(),
-                            tag,
-                        });
-                    }
+                    let _ = solution_sender.send(Solution {
+                        public_key: FarmerId::from_slice(&keypair.public.to_bytes()),
+                        nonce,
+                        encoding: encoding.to_vec(),
+                        signature: keypair.sign(ctx.bytes(&tag)).to_bytes().to_vec(),
+                        tag,
+                    });
                 }
-            });
-        }
+            }
+        });
+
         poc_futures.push(poc_worker);
     }
     block_on(future::select(
