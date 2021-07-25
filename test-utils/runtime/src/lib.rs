@@ -531,10 +531,6 @@ impl pallet_timestamp::Config for Runtime {
 
 parameter_types! {
 	pub const EpochDuration: u64 = 6;
-	pub const EraDuration: u32 = 5;
-	pub const EonDuration: u64 = 11;
-	pub const InitialSolutionRange: u64 = u64::MAX;
-	pub const SlotProbability: (u64, u64) = (3, 10);
 	pub const ExpectedBlockTime: u64 = 10_000;
 }
 
@@ -559,6 +555,13 @@ impl pallet_babe::Config for Runtime {
 	type HandleEquivocation = ();
 
 	type WeightInfo = ();
+}
+
+parameter_types! {
+	pub const EraDuration: u32 = 5;
+	pub const EonDuration: u64 = 11;
+	pub const InitialSolutionRange: u64 = u64::MAX;
+	pub const SlotProbability: (u64, u64) = (3, 10);
 }
 
 impl pallet_spartan::Config for Runtime {
@@ -872,11 +875,13 @@ cfg_if! {
 				}
 
 				fn submit_report_equivocation_unsigned_extrinsic(
-					_equivocation_proof: sp_consensus_poc::EquivocationProof<
+					equivocation_proof: sp_consensus_poc::EquivocationProof<
 						<Block as BlockT>::Header,
 					>,
 				) -> Option<()> {
-					None
+					<pallet_spartan::Pallet<Runtime>>::submit_test_equivocation_report(
+						equivocation_proof,
+					)
 				}
 
 				fn is_in_block_list(farmer_id: &sp_consensus_poc::FarmerId) -> bool {
@@ -1177,11 +1182,13 @@ cfg_if! {
 				}
 
 				fn submit_report_equivocation_unsigned_extrinsic(
-					_equivocation_proof: sp_consensus_poc::EquivocationProof<
+					equivocation_proof: sp_consensus_poc::EquivocationProof<
 						<Block as BlockT>::Header,
 					>,
 				) -> Option<()> {
-					None
+					<pallet_spartan::Pallet<Runtime>>::submit_test_equivocation_report(
+						equivocation_proof,
+					)
 				}
 
 				fn is_in_block_list(farmer_id: &sp_consensus_poc::FarmerId) -> bool {

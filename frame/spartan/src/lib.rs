@@ -822,6 +822,14 @@ impl<T: Config> Pallet<T> {
         T::HandleEquivocation::submit_unsigned_equivocation_report(equivocation_proof).ok()
     }
 
+    /// Just stores offender from equivocation report in block list, only used for tests.
+    pub fn submit_test_equivocation_report(
+        equivocation_proof: EquivocationProof<T::Header>,
+    ) -> Option<()> {
+        BlockList::<T>::insert(equivocation_proof.offender.clone(), ());
+        Some(())
+    }
+
     /// Check if `farmer_id` is in block list (due to equivocation)
     pub fn is_in_block_list(farmer_id: &FarmerId) -> bool {
         BlockList::<T>::contains_key(farmer_id)
