@@ -36,6 +36,8 @@ pallet-staking-reward-curve = { version = "3.0.0", path = "../staking/reward-cur
 sp-core = { version = "3.0.0", path = "../../primitives/core" }
 frame-election-provider-support = { version = "3.0.0", path = "../election-provider-support" }
 schnorrkel = { version = "0.9.1" }
+spartan-codec = "0.1.0"
+ring = "0.16"
 
 [features]
 default = ["std"]

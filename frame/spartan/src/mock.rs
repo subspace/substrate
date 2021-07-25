@@ -25,10 +25,13 @@ use crate::{
 use codec::Encode;
 use frame_support::{parameter_types, traits::OnInitialize, weights::Weight};
 use frame_system::InitKind;
-use schnorrkel::Keypair;
+use ring::{digest, hmac};
+use schnorrkel::{Keypair, PublicKey};
 use sp_consensus_poc::digests::{PreDigest, Solution};
 use sp_consensus_poc::{FarmerSignature, Slot};
-use sp_consensus_spartan::spartan::{Piece, Tag, SIGNING_CONTEXT};
+use sp_consensus_spartan::spartan::{
+    Piece, Tag, ENCODE_ROUNDS, GENESIS_PIECE_SEED, PIECE_SIZE, PRIME_SIZE_BYTES, SIGNING_CONTEXT,
+};
 use sp_core::{Public, H256};
 use sp_io;
 use sp_runtime::{
@@ -37,6 +40,7 @@ use sp_runtime::{
     Perbill,
 };
 use std::convert::TryInto;
+use std::io::Write;
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -175,7 +179,7 @@ impl Config for Test {
     type WeightInfo = ();
 }
 
-pub fn go_to_block(block: u64, slot: u64) {
+pub fn go_to_block(keypair: &Keypair, block: u64, slot: u64) {
     use frame_support::traits::OnFinalize;
 
     Spartan::on_finalize(System::block_number());
@@ -187,10 +191,14 @@ pub fn go_to_block(block: u64, slot: u64) {
         System::parent_hash()
     };
 
-    let keypair = Keypair::generate();
+    let spartan = spartan_codec::Spartan::<PRIME_SIZE_BYTES, PIECE_SIZE>::new(
+        genesis_piece_from_seed(GENESIS_PIECE_SEED),
+    );
+    let public_key_hash = hash_public_key(&keypair.public);
     let ctx = schnorrkel::context::signing_context(SIGNING_CONTEXT);
-    let encoding: Piece = [0u8; 4096];
-    let tag: Tag = [(block % 8) as u8; 8];
+    let nonce = 0;
+    let encoding: Piece = spartan.encode(public_key_hash, nonce, ENCODE_ROUNDS);
+    let tag: Tag = create_tag(&encoding, &Spartan::salt().to_le_bytes());
 
     let pre_digest = make_pre_digest(
         slot.into(),
@@ -208,11 +216,35 @@ pub fn go_to_block(block: u64, slot: u64) {
     Spartan::on_initialize(block);
 }
 
+fn genesis_piece_from_seed(seed: &str) -> Piece {
+    let mut piece = [0u8; PIECE_SIZE];
+    let mut input = seed.as_bytes().to_vec();
+    for mut chunk in piece.chunks_mut(digest::SHA256.output_len) {
+        input = digest::digest(&digest::SHA256, &input).as_ref().to_vec();
+        chunk.write_all(input.as_ref()).unwrap();
+    }
+    piece
+}
+
+fn hash_public_key(public_key: &PublicKey) -> [u8; PRIME_SIZE_BYTES] {
+    let mut array = [0u8; PRIME_SIZE_BYTES];
+    let hash = digest::digest(&digest::SHA256, public_key.as_ref());
+    array.copy_from_slice(&hash.as_ref()[..PRIME_SIZE_BYTES]);
+    array
+}
+
+fn create_tag(encoding: &[u8], salt: &[u8]) -> Tag {
+    let key = hmac::Key::new(hmac::HMAC_SHA256, salt);
+    hmac::sign(&key, encoding).as_ref()[0..8]
+        .try_into()
+        .unwrap()
+}
+
 /// Slots will grow accordingly to blocks
-pub fn progress_to_block(n: u64) {
+pub fn progress_to_block(keypair: &Keypair, n: u64) {
     let mut slot = u64::from(Spartan::current_slot()) + 1;
     for i in System::block_number() + 1..=n {
-        go_to_block(i, slot);
+        go_to_block(keypair, i, slot);
         slot += 1;
     }
 }
@@ -282,7 +314,7 @@ pub fn generate_equivocation_proof(
     seal_header(&mut h2);
 
     // restore previous runtime state
-    go_to_block(current_block, *current_slot);
+    go_to_block(keypair, current_block, *current_slot);
 
     sp_consensus_poc::EquivocationProof {
         slot,

@@ -5485,6 +5485,7 @@ dependencies = [
  "pallet-staking-reward-curve",
  "pallet-timestamp",
  "parity-scale-codec",
+ "ring",
  "schnorrkel",
  "serde",
  "sp-consensus-poc",
@@ -5494,6 +5495,7 @@ dependencies = [
  "sp-runtime",
  "sp-staking",
  "sp-std",
+ "spartan-codec",
 ]
 
 [[package]]

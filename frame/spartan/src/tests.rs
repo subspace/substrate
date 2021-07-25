@@ -108,14 +108,16 @@ fn author_por_output() {
 #[test]
 fn can_predict_next_epoch_change() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         assert_eq!(<Test as Config>::EpochDuration::get(), 3);
         // this sets the genesis slot to 6;
-        go_to_block(1, 6);
+        go_to_block(&keypair, 1, 6);
         assert_eq!(*Spartan::genesis_slot(), 6);
         assert_eq!(*Spartan::current_slot(), 6);
         assert_eq!(Spartan::epoch_index(), 0);
 
-        progress_to_block(5);
+        progress_to_block(&keypair, 5);
 
         assert_eq!(Spartan::epoch_index(), 5 / 3);
         assert_eq!(*Spartan::current_slot(), 10);
@@ -132,6 +134,8 @@ fn can_predict_next_epoch_change() {
 #[test]
 fn can_update_solution_range_on_era_change() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         assert_eq!(<Test as Config>::EraDuration::get(), 4);
         assert_eq!(
             <Test as Config>::InitialSolutionRange::get(),
@@ -141,10 +145,10 @@ fn can_update_solution_range_on_era_change() {
         assert_eq!(Spartan::solution_range(), None);
 
         // We produce blocks on every slot
-        progress_to_block(4);
+        progress_to_block(&keypair, 4);
         // Still no solution range update
         assert_eq!(Spartan::solution_range(), None);
-        progress_to_block(5);
+        progress_to_block(&keypair, 5);
 
         // Second era should have solution range updated
         assert_matches!(Spartan::solution_range(), Some(_));
@@ -155,9 +159,10 @@ fn can_update_solution_range_on_era_change() {
         assert!(last_solution_range < INITIAL_SOLUTION_RANGE);
 
         // Progress almost to era change
-        progress_to_block(8);
+        progress_to_block(&keypair, 8);
         // Change era such that it takes more slots than expected
         go_to_block(
+            &keypair,
             9,
             u64::from(Spartan::current_slot()) + (4 * SLOT_PROBABILITY.1 / SLOT_PROBABILITY.0 + 10),
         );
@@ -169,24 +174,26 @@ fn can_update_solution_range_on_era_change() {
 #[test]
 fn can_update_salt_on_eon_change() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         assert_eq!(<Test as Config>::EonDuration::get(), 5);
         // Initial salt equals to eon
         assert_eq!(Spartan::salt(), 0);
 
         // We produce blocks on every slot
-        progress_to_block(5);
+        progress_to_block(&keypair, 5);
         // Still no salt update
         assert_eq!(Spartan::salt(), 0);
-        progress_to_block(6);
+        progress_to_block(&keypair, 6);
 
         // Second eon should have salt updated
         assert_matches!(Spartan::salt(), 1);
 
         // We produce blocks on every slot
-        progress_to_block(10);
+        progress_to_block(&keypair, 10);
         // Just before eon update, still the same salt as before
         assert_eq!(Spartan::salt(), 1);
-        progress_to_block(11);
+        progress_to_block(&keypair, 11);
 
         // Third eon should have salt updated again
         assert_matches!(Spartan::salt(), 2);
@@ -196,13 +203,15 @@ fn can_update_salt_on_eon_change() {
 #[test]
 fn can_enact_next_config() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         assert_eq!(<Test as Config>::EpochDuration::get(), 3);
         // this sets the genesis slot to 6;
-        go_to_block(1, 6);
+        go_to_block(&keypair, 1, 6);
         assert_eq!(*Spartan::genesis_slot(), 6);
         assert_eq!(*Spartan::current_slot(), 6);
         assert_eq!(Spartan::epoch_index(), 0);
-        go_to_block(2, 7);
+        go_to_block(&keypair, 2, 7);
 
         let current_config = PoCEpochConfiguration { c: (0, 4) };
 
@@ -223,7 +232,7 @@ fn can_enact_next_config() {
         )
         .unwrap();
 
-        progress_to_block(4);
+        progress_to_block(&keypair, 4);
         Spartan::on_finalize(9);
         let header = System::finalize();
 
@@ -267,9 +276,11 @@ fn only_root_can_enact_config_change() {
 #[test]
 fn can_fetch_current_and_next_epoch_data() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         EpochConfig::<Test>::put(PoCEpochConfiguration { c: (1, 4) });
 
-        progress_to_block(System::block_number() + 4);
+        progress_to_block(&keypair, System::block_number() + 4);
 
         let current_epoch = Spartan::current_epoch();
         assert_eq!(current_epoch.epoch_index, 1);
@@ -287,12 +298,14 @@ fn can_fetch_current_and_next_epoch_data() {
 #[test]
 fn tracks_block_numbers_when_current_and_previous_epoch_started() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         // an epoch is 3 slots therefore at block 8 we should be in epoch #3
         // with the previous epochs having the following blocks:
         // epoch 1 - [1, 2, 3]
         // epoch 2 - [4, 5, 6]
         // epoch 3 - [7, 8, 9]
-        progress_to_block(8);
+        progress_to_block(&keypair, 8);
 
         let (last_epoch, current_epoch) = EpochStart::<Test>::get();
 
@@ -300,7 +313,7 @@ fn tracks_block_numbers_when_current_and_previous_epoch_started() {
         assert_eq!(current_epoch, 7);
 
         // once we reach block 10 we switch to epoch #4
-        progress_to_block(10);
+        progress_to_block(&keypair, 10);
 
         let (last_epoch, current_epoch) = EpochStart::<Test>::get();
 
@@ -312,7 +325,9 @@ fn tracks_block_numbers_when_current_and_previous_epoch_started() {
 #[test]
 fn report_equivocation_current_session_works() {
     new_test_ext().execute_with(|| {
-        progress_to_block(1);
+        let keypair = Keypair::generate();
+
+        progress_to_block(&keypair, 1);
 
         let keypair = Keypair::generate();
         let farmer_id = FarmerId::from_slice(&keypair.public.to_bytes());
@@ -326,7 +341,7 @@ fn report_equivocation_current_session_works() {
         // report the equivocation
         Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof).unwrap();
 
-        progress_to_block(2);
+        progress_to_block(&keypair, 2);
 
         // check that farmer was added to block list
         assert_eq!(Spartan::is_in_block_list(&farmer_id), true);
@@ -336,7 +351,9 @@ fn report_equivocation_current_session_works() {
 #[test]
 fn report_equivocation_old_session_works() {
     new_test_ext().execute_with(|| {
-        progress_to_block(1);
+        let keypair = Keypair::generate();
+
+        progress_to_block(&keypair, 1);
 
         let keypair = Keypair::generate();
         let farmer_id = FarmerId::from_slice(&keypair.public.to_bytes());
@@ -346,14 +363,14 @@ fn report_equivocation_old_session_works() {
 
         // create new block and report the equivocation
         // from the previous block
-        progress_to_block(2);
+        progress_to_block(&keypair, 2);
 
         assert_eq!(Spartan::is_in_block_list(&farmer_id), false);
 
         // report the equivocation
         Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof).unwrap();
 
-        progress_to_block(3);
+        progress_to_block(&keypair, 3);
 
         // check that farmer was added to block list
         assert_eq!(Spartan::is_in_block_list(&farmer_id), true);
@@ -365,7 +382,9 @@ fn report_equivocation_invalid_equivocation_proof() {
     use sp_runtime::traits::Header;
 
     new_test_ext().execute_with(|| {
-        progress_to_block(1);
+        let keypair = Keypair::generate();
+
+        progress_to_block(&keypair, 1);
 
         let keypair = Keypair::generate();
 
@@ -437,7 +456,9 @@ fn report_equivocation_validate_unsigned_prevents_duplicates() {
     };
 
     new_test_ext().execute_with(|| {
-        progress_to_block(1);
+        let keypair = Keypair::generate();
+
+        progress_to_block(&keypair, 1);
 
         let keypair = Keypair::generate();
         let farmer_id = FarmerId::from_slice(&keypair.public.to_bytes());
@@ -505,7 +526,9 @@ fn report_equivocation_has_valid_weight() {
 #[test]
 fn valid_equivocation_reports_dont_pay_fees() {
     new_test_ext().execute_with(|| {
-        progress_to_block(1);
+        let keypair = Keypair::generate();
+
+        progress_to_block(&keypair, 1);
 
         let keypair = Keypair::generate();
 
