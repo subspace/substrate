@@ -4466,6 +4466,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "hex-literal",
  "pallet-balances",
+ "pallet-offences-poc",
  "pallet-randomness-collective-flip",
  "pallet-session",
  "pallet-spartan",
@@ -5316,6 +5317,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-offences-poc"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "schnorrkel",
+ "serde",
+ "sp-consensus-poc",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-proxy"
 version = "3.0.0"
 dependencies = [
@@ -5454,7 +5473,6 @@ dependencies = [
 name = "pallet-spartan"
 version = "0.1.0"
 dependencies = [
- "frame-benchmarking",
  "frame-election-provider-support",
  "frame-support",
  "frame-system",
@@ -5462,11 +5480,12 @@ dependencies = [
  "num-traits",
  "pallet-authorship",
  "pallet-balances",
- "pallet-offences",
+ "pallet-offences-poc",
  "pallet-staking",
  "pallet-staking-reward-curve",
  "pallet-timestamp",
  "parity-scale-codec",
+ "ring",
  "schnorrkel",
  "serde",
  "sp-consensus-poc",
@@ -5476,6 +5495,7 @@ dependencies = [
  "sp-runtime",
  "sp-staking",
  "sp-std",
+ "spartan-codec",
 ]
 
 [[package]]
@@ -8884,7 +8904,6 @@ dependencies = [
  "sp-consensus-spartan",
  "sp-core",
  "sp-inherents",
- "sp-keystore",
  "sp-runtime",
  "sp-std",
  "sp-timestamp",

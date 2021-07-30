@@ -109,8 +109,8 @@ where
         epoch.config.c,
         solution_range,
         salt,
-        &spartan,
-        &signing_context,
+        spartan,
+        signing_context,
     )?;
 
     let info = VerifiedHeaderInfo {

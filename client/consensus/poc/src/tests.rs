@@ -25,22 +25,26 @@
 use super::*;
 use futures::executor::block_on;
 use log::debug;
+use ring::{digest, hmac};
 use sc_block_builder::{BlockBuilder, BlockBuilderProvider};
 use sc_client_api::{backend::TransactionFor, BlockchainEvents};
 use sc_consensus_slots::BackoffAuthoringOnFinalizedHeadLagging;
 use sc_network::config::ProtocolConfig;
 use sc_network_test::{Block as TestBlock, *};
-use schnorrkel::Keypair;
+use schnorrkel::{Keypair, PublicKey};
 use sp_consensus::{
     import_queue::{BoxBlockImport, BoxJustificationImport},
     AlwaysCanAuthor, DisableProofRecording, NoNetwork as DummyOracle, Proposal,
 };
 use sp_consensus_poc::Slot;
-use sp_consensus_spartan::spartan::{Piece, Tag};
+use sp_consensus_spartan::spartan::{
+    Piece, Tag, ENCODE_ROUNDS, GENESIS_PIECE_SEED, PIECE_SIZE, PRIME_SIZE_BYTES,
+};
 use sp_runtime::{
     generic::DigestItem,
     traits::{Block as BlockT, DigestFor},
 };
+use std::io::Write;
 use std::{cell::RefCell, task::Poll, time::Duration};
 
 type Item = DigestItem<Hash>;
@@ -145,13 +149,26 @@ impl DummyProposer {
         let first_in_epoch = self.parent_slot < epoch.start_slot;
         if first_in_epoch {
             // push a `Consensus` digest signalling next change.
-            // we just reuse the same randomness and authorities as the prior
+            // we just reuse the same randomness as the prior
             // epoch. this will break when we add light client support, since
             // that will re-check the randomness logic off-chain.
             let digest_data = ConsensusLog::NextEpochData(NextEpochDescriptor {
                 randomness: epoch.randomness.clone(),
             })
             .encode();
+            let digest = DigestItem::Consensus(POC_ENGINE_ID, digest_data);
+            block.header.digest_mut().push(digest)
+        }
+        {
+            let digest_data = ConsensusLog::NextSolutionRangeData(NextSolutionRangeDescriptor {
+                solution_range: u64::MAX,
+            })
+            .encode();
+            let digest = DigestItem::Consensus(POC_ENGINE_ID, digest_data);
+            block.header.digest_mut().push(digest)
+        }
+        {
+            let digest_data = ConsensusLog::NextSaltData(NextSaltDescriptor { salt: 0 }).encode();
             let digest = DigestItem::Consensus(POC_ENGINE_ID, digest_data);
             block.header.digest_mut().push(digest)
         }
@@ -465,18 +482,20 @@ fn run_one_test(mutator: impl Fn(&mut TestHeader, Stage) + Send + Sync + 'static
         })
         .expect("Starts poc");
 
-        // Just one solver
-        if *peer_id == 0 {
-            let notifier = poc_worker.get_new_slot_notifier()();
-            std::thread::spawn(move || {
-                let keypair = Keypair::generate();
-                let ctx = schnorrkel::context::signing_context(SIGNING_CONTEXT);
-                let encoding: Piece = [0u8; 4096];
-                let nonce = 0;
+        let notifier = poc_worker.get_new_slot_notifier()();
+        std::thread::spawn(move || {
+            let spartan = spartan_codec::Spartan::<PRIME_SIZE_BYTES, PIECE_SIZE>::new(
+                genesis_piece_from_seed(GENESIS_PIECE_SEED),
+            );
+            let keypair = Keypair::generate();
+            let public_key_hash = hash_public_key(&keypair.public);
+            let ctx = schnorrkel::context::signing_context(SIGNING_CONTEXT);
+            let nonce = 0;
+            let encoding: Piece = spartan.encode(public_key_hash, nonce, ENCODE_ROUNDS);
 
-                while let Ok((new_slot_info, solution_sender)) = notifier.recv() {
-                    // TODO: Generate real tag for verification to succeed
-                    let tag: Tag = [(*new_slot_info.slot % 8) as u8; 8];
+            while let Ok((new_slot_info, solution_sender)) = notifier.recv() {
+                if Into::<u64>::into(new_slot_info.slot) % 3 == (*peer_id) as u64 {
+                    let tag: Tag = create_tag(&encoding, &new_slot_info.salt);
 
                     let _ = solution_sender.send(Solution {
                         public_key: FarmerId::from_slice(&keypair.public.to_bytes()),
@@ -486,8 +505,9 @@ fn run_one_test(mutator: impl Fn(&mut TestHeader, Stage) + Send + Sync + 'static
                         tag,
                     });
                 }
-            });
-        }
+            }
+        });
+
         poc_futures.push(poc_worker);
     }
     block_on(future::select(
@@ -509,50 +529,70 @@ fn run_one_test(mutator: impl Fn(&mut TestHeader, Stage) + Send + Sync + 'static
     ));
 }
 
-// TODO: Needs adjustable solution range, Milestone 2.
-// #[test]
-// fn authoring_blocks() {
-//     run_one_test(|_, _| ())
-// }
+fn genesis_piece_from_seed(seed: &str) -> Piece {
+    let mut piece = [0u8; PIECE_SIZE];
+    let mut input = seed.as_bytes().to_vec();
+    for mut chunk in piece.chunks_mut(digest::SHA256.output_len) {
+        input = digest::digest(&digest::SHA256, &input).as_ref().to_vec();
+        chunk.write_all(input.as_ref()).unwrap();
+    }
+    piece
+}
 
-// TODO: Needs adjustable solution range, Milestone 2.
-// #[test]
-// #[should_panic]
-// fn rejects_missing_inherent_digest() {
-//     run_one_test(|header: &mut TestHeader, stage| {
-//         let v = std::mem::take(&mut header.digest_mut().logs);
-//         header.digest_mut().logs = v
-//             .into_iter()
-//             .filter(|v| stage == Stage::PostSeal || v.as_poc_pre_digest().is_none())
-//             .collect()
-//     })
-// }
+fn hash_public_key(public_key: &PublicKey) -> [u8; PRIME_SIZE_BYTES] {
+    let mut array = [0u8; PRIME_SIZE_BYTES];
+    let hash = digest::digest(&digest::SHA256, public_key.as_ref());
+    array.copy_from_slice(&hash.as_ref()[..PRIME_SIZE_BYTES]);
+    array
+}
 
-// TODO: Needs adjustable solution range, Milestone 2.
-// #[test]
-// #[should_panic]
-// fn rejects_missing_seals() {
-//     run_one_test(|header: &mut TestHeader, stage| {
-//         let v = std::mem::take(&mut header.digest_mut().logs);
-//         header.digest_mut().logs = v
-//             .into_iter()
-//             .filter(|v| stage == Stage::PreSeal || v.as_poc_seal().is_none())
-//             .collect()
-//     })
-// }
+fn create_tag(encoding: &[u8], salt: &[u8]) -> Tag {
+    let key = hmac::Key::new(hmac::HMAC_SHA256, salt);
+    hmac::sign(&key, encoding).as_ref()[0..8]
+        .try_into()
+        .unwrap()
+}
 
-// TODO: Needs adjustable solution range, Milestone 2.
-// #[test]
-// #[should_panic]
-// fn rejects_missing_consensus_digests() {
-//     run_one_test(|header: &mut TestHeader, stage| {
-//         let v = std::mem::take(&mut header.digest_mut().logs);
-//         header.digest_mut().logs = v
-//             .into_iter()
-//             .filter(|v| stage == Stage::PostSeal || v.as_next_epoch_descriptor().is_none())
-//             .collect()
-//     });
-// }
+#[test]
+fn authoring_blocks() {
+    run_one_test(|_, _| ())
+}
+
+#[test]
+#[should_panic]
+fn rejects_missing_inherent_digest() {
+    run_one_test(|header: &mut TestHeader, stage| {
+        let v = std::mem::take(&mut header.digest_mut().logs);
+        header.digest_mut().logs = v
+            .into_iter()
+            .filter(|v| stage == Stage::PostSeal || v.as_poc_pre_digest().is_none())
+            .collect()
+    })
+}
+
+#[test]
+#[should_panic]
+fn rejects_missing_seals() {
+    run_one_test(|header: &mut TestHeader, stage| {
+        let v = std::mem::take(&mut header.digest_mut().logs);
+        header.digest_mut().logs = v
+            .into_iter()
+            .filter(|v| stage == Stage::PreSeal || v.as_poc_seal().is_none())
+            .collect()
+    })
+}
+
+#[test]
+#[should_panic]
+fn rejects_missing_consensus_digests() {
+    run_one_test(|header: &mut TestHeader, stage| {
+        let v = std::mem::take(&mut header.digest_mut().logs);
+        header.digest_mut().logs = v
+            .into_iter()
+            .filter(|v| stage == Stage::PostSeal || v.as_next_epoch_descriptor().is_none())
+            .collect()
+    });
+}
 
 #[test]
 fn wrong_consensus_engine_id_rejected() {
@@ -953,38 +993,3 @@ fn verify_slots_are_strictly_increasing() {
         &mut block_import,
     );
 }
-
-// TODO: fix for milestone 3
-// #[test]
-// fn babe_transcript_generation_match() {
-// 	sp_tracing::try_init_simple();
-// 	let keystore_path = tempfile::tempdir().expect("Creates keystore path");
-// 	let keystore: SyncCryptoStorePtr = Arc::new(LocalKeystore::open(keystore_path.path(), None)
-// 		.expect("Creates keystore"));
-// 	let public = SyncCryptoStore::sr25519_generate_new(&*keystore, BABE, Some("//Alice"))
-// 		.expect("Generates authority pair");
-//
-// 	let epoch = Epoch {
-// 		start_slot: 0.into(),
-// 		authorities: vec![(public.into(), 1)],
-// 		randomness: [0; 32],
-// 		epoch_index: 1,
-// 		duration: 100,
-// 		config: BabeEpochConfiguration {
-// 			c: (3, 10),
-// 			allowed_slots: AllowedSlots::PrimaryAndSecondaryPlainSlots,
-// 		},
-// 	};
-//
-// 	let orig_transcript = make_transcript(&epoch.randomness.clone(), 1.into(), epoch.epoch_index);
-// 	let new_transcript = make_transcript_data(&epoch.randomness, 1.into(), epoch.epoch_index);
-//
-// 	let test = |t: merlin::Transcript| -> [u8; 16] {
-// 		let mut b = [0u8; 16];
-// 		t.build_rng()
-// 			.finalize(&mut ChaChaRng::from_seed([0u8;32]))
-// 			.fill_bytes(&mut b);
-// 		b
-// 	};
-// 	debug_assert!(test(orig_transcript) == test(transcript_from_data(new_transcript)));
-// }

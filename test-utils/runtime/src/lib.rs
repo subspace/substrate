@@ -531,10 +531,6 @@ impl pallet_timestamp::Config for Runtime {
 
 parameter_types! {
 	pub const EpochDuration: u64 = 6;
-	pub const EraDuration: u32 = 5;
-	pub const EonDuration: u64 = 11;
-	pub const InitialSolutionRange: u64 = u64::MAX;
-	pub const SlotProbability: (u64, u64) = (3, 10);
 	pub const ExpectedBlockTime: u64 = 10_000;
 }
 
@@ -561,6 +557,13 @@ impl pallet_babe::Config for Runtime {
 	type WeightInfo = ();
 }
 
+parameter_types! {
+	pub const EraDuration: u32 = 5;
+	pub const EonDuration: u64 = 11;
+	pub const InitialSolutionRange: u64 = u64::MAX;
+	pub const SlotProbability: (u64, u64) = (3, 10);
+}
+
 impl pallet_spartan::Config for Runtime {
 	type EpochDuration = EpochDuration;
 	type EraDuration = EraDuration;
@@ -571,6 +574,8 @@ impl pallet_spartan::Config for Runtime {
 	type EpochChangeTrigger = pallet_spartan::NormalEpochChange;
 	type EraChangeTrigger = pallet_spartan::NormalEraChange;
 	type EonChangeTrigger = pallet_spartan::NormalEonChange;
+
+	type HandleEquivocation = ();
 
 	type WeightInfo = ();
 }
@@ -868,6 +873,20 @@ cfg_if! {
 				fn next_epoch() -> sp_consensus_poc::Epoch {
 					<pallet_spartan::Pallet<Runtime>>::next_epoch()
 				}
+
+				fn submit_report_equivocation_unsigned_extrinsic(
+					equivocation_proof: sp_consensus_poc::EquivocationProof<
+						<Block as BlockT>::Header,
+					>,
+				) -> Option<()> {
+					<pallet_spartan::Pallet<Runtime>>::submit_test_equivocation_report(
+						equivocation_proof,
+					)
+				}
+
+				fn is_in_block_list(farmer_id: &sp_consensus_poc::FarmerId) -> bool {
+					<pallet_spartan::Pallet<Runtime>>::is_in_block_list(farmer_id)
+				}
 			}
 
 			impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
@@ -1160,6 +1179,20 @@ cfg_if! {
 
 				fn next_epoch() -> sp_consensus_poc::Epoch {
 					<pallet_spartan::Pallet<Runtime>>::next_epoch()
+				}
+
+				fn submit_report_equivocation_unsigned_extrinsic(
+					equivocation_proof: sp_consensus_poc::EquivocationProof<
+						<Block as BlockT>::Header,
+					>,
+				) -> Option<()> {
+					<pallet_spartan::Pallet<Runtime>>::submit_test_equivocation_report(
+						equivocation_proof,
+					)
+				}
+
+				fn is_in_block_list(farmer_id: &sp_consensus_poc::FarmerId) -> bool {
+					<pallet_spartan::Pallet<Runtime>>::is_in_block_list(farmer_id)
 				}
 			}
 

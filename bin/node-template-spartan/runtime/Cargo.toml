@@ -19,6 +19,7 @@ pallet-session = { version = "3.0.0", default-features = false, features = ["his
 frame-support = { version = "3.0.0", default-features = false, path = "../../../frame/support" }
 pallet-randomness-collective-flip = { version = "3.0.0", default-features = false, path = "../../../frame/randomness-collective-flip" }
 pallet-sudo = { version = "3.0.0", default-features = false, path = "../../../frame/sudo" }
+pallet-offences-poc = { version = "0.1.0", default-features = false, path = "../../../frame/offences-poc" }
 frame-system = { version = "3.0.0", default-features = false, path = "../../../frame/system" }
 pallet-timestamp = { version = "3.0.0", default-features = false, path = "../../../frame/timestamp" }
 pallet-transaction-payment = { version = "3.0.0", default-features = false, path = "../../../frame/transaction-payment" }
@@ -62,6 +63,7 @@ std = [
 	"pallet-session/std",
 	"pallet-randomness-collective-flip/std",
 	"pallet-sudo/std",
+	"pallet-offences-poc/std",
 	"pallet-template-spartan/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",

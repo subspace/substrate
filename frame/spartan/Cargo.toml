@@ -14,7 +14,6 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 codec = { package = "parity-scale-codec", version = "2.0.0", default-features = false, features = ["derive"] }
-frame-benchmarking = { version = "3.1.0", default-features = false, path = "../benchmarking", optional = true }
 frame-support = { version = "3.0.0", default-features = false, path = "../support" }
 frame-system = { version = "3.0.0", default-features = false, path = "../system" }
 pallet-authorship = { version = "3.0.0", default-features = false, path = "../authorship" }
@@ -31,18 +30,19 @@ num-traits = { version = "0.2.8", default-features = false }
 
 [dev-dependencies]
 pallet-balances = { version = "3.0.0", path = "../balances" }
-pallet-offences = { version = "3.0.0", path = "../offences" }
+pallet-offences-poc = { version = "0.1.0", path = "../offences-poc" }
 pallet-staking = { version = "3.0.0", path = "../staking" }
 pallet-staking-reward-curve = { version = "3.0.0", path = "../staking/reward-curve" }
 sp-core = { version = "3.0.0", path = "../../primitives/core" }
 frame-election-provider-support = { version = "3.0.0", path = "../election-provider-support" }
 schnorrkel = { version = "0.9.1" }
+spartan-codec = "0.1.0"
+ring = "0.16"
 
 [features]
 default = ["std"]
 std = [
 	"codec/std",
-	"frame-benchmarking/std",
 	"frame-support/std",
 	"frame-system/std",
 	"pallet-authorship/std",
@@ -57,5 +57,4 @@ std = [
 	"log/std",
 	"num-traits/std",
 ]
-runtime-benchmarks = ["frame-benchmarking"]
 try-runtime = ["frame-support/try-runtime"]

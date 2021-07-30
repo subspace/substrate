@@ -18,11 +18,15 @@
 
 //! Consensus extension module tests for Spartan consensus.
 
-use super::*;
-use frame_support::{assert_noop, traits::OnFinalize};
+use super::{Call, *};
+use frame_support::{
+    assert_err, assert_noop, assert_ok, traits::OnFinalize, weights::GetDispatchInfo,
+};
 use mock::*;
+use schnorrkel::Keypair;
 use sp_consensus_poc::digests::Solution;
 use sp_consensus_poc::{PoCEpochConfiguration, Slot};
+use sp_core::Public;
 
 const EMPTY_RANDOMNESS: [u8; 32] = [
     74, 25, 49, 128, 53, 97, 244, 49, 222, 202, 176, 2, 231, 66, 95, 10, 133, 49, 213, 228, 86,
@@ -104,14 +108,16 @@ fn author_por_output() {
 #[test]
 fn can_predict_next_epoch_change() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         assert_eq!(<Test as Config>::EpochDuration::get(), 3);
         // this sets the genesis slot to 6;
-        go_to_block(1, 6);
+        go_to_block(&keypair, 1, 6);
         assert_eq!(*Spartan::genesis_slot(), 6);
         assert_eq!(*Spartan::current_slot(), 6);
         assert_eq!(Spartan::epoch_index(), 0);
 
-        progress_to_block(5);
+        progress_to_block(&keypair, 5);
 
         assert_eq!(Spartan::epoch_index(), 5 / 3);
         assert_eq!(*Spartan::current_slot(), 10);
@@ -128,6 +134,8 @@ fn can_predict_next_epoch_change() {
 #[test]
 fn can_update_solution_range_on_era_change() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         assert_eq!(<Test as Config>::EraDuration::get(), 4);
         assert_eq!(
             <Test as Config>::InitialSolutionRange::get(),
@@ -137,10 +145,10 @@ fn can_update_solution_range_on_era_change() {
         assert_eq!(Spartan::solution_range(), None);
 
         // We produce blocks on every slot
-        progress_to_block(4);
+        progress_to_block(&keypair, 4);
         // Still no solution range update
         assert_eq!(Spartan::solution_range(), None);
-        progress_to_block(5);
+        progress_to_block(&keypair, 5);
 
         // Second era should have solution range updated
         assert_matches!(Spartan::solution_range(), Some(_));
@@ -151,9 +159,10 @@ fn can_update_solution_range_on_era_change() {
         assert!(last_solution_range < INITIAL_SOLUTION_RANGE);
 
         // Progress almost to era change
-        progress_to_block(8);
+        progress_to_block(&keypair, 8);
         // Change era such that it takes more slots than expected
         go_to_block(
+            &keypair,
             9,
             u64::from(Spartan::current_slot()) + (4 * SLOT_PROBABILITY.1 / SLOT_PROBABILITY.0 + 10),
         );
@@ -165,24 +174,26 @@ fn can_update_solution_range_on_era_change() {
 #[test]
 fn can_update_salt_on_eon_change() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         assert_eq!(<Test as Config>::EonDuration::get(), 5);
         // Initial salt equals to eon
         assert_eq!(Spartan::salt(), 0);
 
         // We produce blocks on every slot
-        progress_to_block(5);
+        progress_to_block(&keypair, 5);
         // Still no salt update
         assert_eq!(Spartan::salt(), 0);
-        progress_to_block(6);
+        progress_to_block(&keypair, 6);
 
         // Second eon should have salt updated
         assert_matches!(Spartan::salt(), 1);
 
         // We produce blocks on every slot
-        progress_to_block(10);
+        progress_to_block(&keypair, 10);
         // Just before eon update, still the same salt as before
         assert_eq!(Spartan::salt(), 1);
-        progress_to_block(11);
+        progress_to_block(&keypair, 11);
 
         // Third eon should have salt updated again
         assert_matches!(Spartan::salt(), 2);
@@ -192,13 +203,15 @@ fn can_update_salt_on_eon_change() {
 #[test]
 fn can_enact_next_config() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         assert_eq!(<Test as Config>::EpochDuration::get(), 3);
         // this sets the genesis slot to 6;
-        go_to_block(1, 6);
+        go_to_block(&keypair, 1, 6);
         assert_eq!(*Spartan::genesis_slot(), 6);
         assert_eq!(*Spartan::current_slot(), 6);
         assert_eq!(Spartan::epoch_index(), 0);
-        go_to_block(2, 7);
+        go_to_block(&keypair, 2, 7);
 
         let current_config = PoCEpochConfiguration { c: (0, 4) };
 
@@ -219,7 +232,7 @@ fn can_enact_next_config() {
         )
         .unwrap();
 
-        progress_to_block(4);
+        progress_to_block(&keypair, 4);
         Spartan::on_finalize(9);
         let header = System::finalize();
 
@@ -263,9 +276,11 @@ fn only_root_can_enact_config_change() {
 #[test]
 fn can_fetch_current_and_next_epoch_data() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         EpochConfig::<Test>::put(PoCEpochConfiguration { c: (1, 4) });
 
-        progress_to_block(System::block_number() + 4);
+        progress_to_block(&keypair, System::block_number() + 4);
 
         let current_epoch = Spartan::current_epoch();
         assert_eq!(current_epoch.epoch_index, 1);
@@ -283,12 +298,14 @@ fn can_fetch_current_and_next_epoch_data() {
 #[test]
 fn tracks_block_numbers_when_current_and_previous_epoch_started() {
     new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
         // an epoch is 3 slots therefore at block 8 we should be in epoch #3
         // with the previous epochs having the following blocks:
         // epoch 1 - [1, 2, 3]
         // epoch 2 - [4, 5, 6]
         // epoch 3 - [7, 8, 9]
-        progress_to_block(8);
+        progress_to_block(&keypair, 8);
 
         let (last_epoch, current_epoch) = EpochStart::<Test>::get();
 
@@ -296,7 +313,7 @@ fn tracks_block_numbers_when_current_and_previous_epoch_started() {
         assert_eq!(current_epoch, 7);
 
         // once we reach block 10 we switch to epoch #4
-        progress_to_block(10);
+        progress_to_block(&keypair, 10);
 
         let (last_epoch, current_epoch) = EpochStart::<Test>::get();
 
@@ -305,495 +322,249 @@ fn tracks_block_numbers_when_current_and_previous_epoch_started() {
     });
 }
 
-// TODO: milestone 3
-// #[test]
-// fn report_equivocation_current_session_works() {
-// 	let (pairs, mut ext) = new_test_ext_with_pairs(3);
-//
-// 	ext.execute_with(|| {
-// 		start_era(1);
-//
-// 		let authorities = Babe::authorities();
-// 		let validators = Session::validators();
-//
-// 		// make sure that all authorities have the same balance
-// 		for validator in &validators {
-// 			assert_eq!(Balances::total_balance(validator), 10_000_000);
-// 			assert_eq!(Staking::slashable_balance_of(validator), 10_000);
-//
-// 			assert_eq!(
-// 				Staking::eras_stakers(1, validator),
-// 				pallet_staking::Exposure {
-// 					total: 10_000,
-// 					own: 10_000,
-// 					others: vec![],
-// 				},
-// 			);
-// 		}
-//
-// 		// we will use the validator at index 0 as the offending authority
-// 		let offending_validator_index = 0;
-// 		let offending_validator_id = Session::validators()[offending_validator_index];
-// 		let offending_authority_pair = pairs
-// 			.into_iter()
-// 			.find(|p| p.public() == authorities[offending_validator_index].0)
-// 			.unwrap();
-//
-// 		// generate an equivocation proof. it creates two headers at the given
-// 		// slot with different block hashes and signed by the given key
-// 		let equivocation_proof = generate_equivocation_proof(
-// 			offending_validator_index as u32,
-// 			&offending_authority_pair,
-// 			CurrentSlot::<Test>::get(),
-// 		);
-//
-// 		// create the key ownership proof
-// 		let key = (
-// 			sp_consensus_poc::KEY_TYPE,
-// 			&offending_authority_pair.public(),
-// 		);
-// 		let key_owner_proof = Historical::prove(key).unwrap();
-//
-// 		// report the equivocation
-// 		Babe::report_equivocation_unsigned(Origin::none(), equivocation_proof, key_owner_proof)
-// 			.unwrap();
-//
-// 		// start a new era so that the results of the offence report
-// 		// are applied at era end
-// 		start_era(2);
-//
-// 		// check that the balance of offending validator is slashed 100%.
-// 		assert_eq!(
-// 			Balances::total_balance(&offending_validator_id),
-// 			10_000_000 - 10_000
-// 		);
-// 		assert_eq!(Staking::slashable_balance_of(&offending_validator_id), 0);
-// 		assert_eq!(
-// 			Staking::eras_stakers(2, offending_validator_id),
-// 			pallet_staking::Exposure {
-// 				total: 0,
-// 				own: 0,
-// 				others: vec![],
-// 			},
-// 		);
-//
-// 		// check that the balances of all other validators are left intact.
-// 		for validator in &validators {
-// 			if *validator == offending_validator_id {
-// 				continue;
-// 			}
-//
-// 			assert_eq!(Balances::total_balance(validator), 10_000_000);
-// 			assert_eq!(Staking::slashable_balance_of(validator), 10_000);
-// 			assert_eq!(
-// 				Staking::eras_stakers(2, validator),
-// 				pallet_staking::Exposure {
-// 					total: 10_000,
-// 					own: 10_000,
-// 					others: vec![],
-// 				},
-// 			);
-// 		}
-// 	})
-// }
-//
-// #[test]
-// fn report_equivocation_old_session_works() {
-// 	let (pairs, mut ext) = new_test_ext_with_pairs(3);
-//
-// 	ext.execute_with(|| {
-// 		start_era(1);
-//
-// 		let authorities = Babe::authorities();
-//
-// 		// we will use the validator at index 0 as the offending authority
-// 		let offending_validator_index = 0;
-// 		let offending_validator_id = Session::validators()[offending_validator_index];
-// 		let offending_authority_pair = pairs
-// 			.into_iter()
-// 			.find(|p| p.public() == authorities[offending_validator_index].0)
-// 			.unwrap();
-//
-// 		// generate an equivocation proof at the current slot
-// 		let equivocation_proof = generate_equivocation_proof(
-// 			offending_validator_index as u32,
-// 			&offending_authority_pair,
-// 			CurrentSlot::<Test>::get(),
-// 		);
-//
-// 		// create the key ownership proof
-// 		let key = (
-// 			sp_consensus_poc::KEY_TYPE,
-// 			&offending_authority_pair.public(),
-// 		);
-// 		let key_owner_proof = Historical::prove(key).unwrap();
-//
-// 		// start a new era and report the equivocation
-// 		// from the previous era
-// 		start_era(2);
-//
-// 		// check the balance of the offending validator
-// 		assert_eq!(Balances::total_balance(&offending_validator_id), 10_000_000);
-// 		assert_eq!(
-// 			Staking::slashable_balance_of(&offending_validator_id),
-// 			10_000
-// 		);
-//
-// 		// report the equivocation
-// 		Babe::report_equivocation_unsigned(Origin::none(), equivocation_proof, key_owner_proof)
-// 			.unwrap();
-//
-// 		// start a new era so that the results of the offence report
-// 		// are applied at era end
-// 		start_era(3);
-//
-// 		// check that the balance of offending validator is slashed 100%.
-// 		assert_eq!(
-// 			Balances::total_balance(&offending_validator_id),
-// 			10_000_000 - 10_000
-// 		);
-// 		assert_eq!(Staking::slashable_balance_of(&offending_validator_id), 0);
-// 		assert_eq!(
-// 			Staking::eras_stakers(3, offending_validator_id),
-// 			pallet_staking::Exposure {
-// 				total: 0,
-// 				own: 0,
-// 				others: vec![],
-// 			},
-// 		);
-// 	})
-// }
-//
-// #[test]
-// fn report_equivocation_invalid_key_owner_proof() {
-// 	let (pairs, mut ext) = new_test_ext_with_pairs(3);
-//
-// 	ext.execute_with(|| {
-// 		start_era(1);
-//
-// 		let authorities = Babe::authorities();
-//
-// 		// we will use the validator at index 0 as the offending authority
-// 		let offending_validator_index = 0;
-// 		let offending_authority_pair = pairs
-// 			.into_iter()
-// 			.find(|p| p.public() == authorities[offending_validator_index].0)
-// 			.unwrap();
-//
-// 		// generate an equivocation proof at the current slot
-// 		let equivocation_proof = generate_equivocation_proof(
-// 			offending_validator_index as u32,
-// 			&offending_authority_pair,
-// 			CurrentSlot::<Test>::get(),
-// 		);
-//
-// 		// create the key ownership proof
-// 		let key = (
-// 			sp_consensus_poc::KEY_TYPE,
-// 			&offending_authority_pair.public(),
-// 		);
-// 		let mut key_owner_proof = Historical::prove(key).unwrap();
-//
-// 		// we change the session index in the key ownership proof
-// 		// which should make it invalid
-// 		key_owner_proof.session = 0;
-// 		assert_err!(
-// 			Babe::report_equivocation_unsigned(
-// 				Origin::none(),
-// 				equivocation_proof.clone(),
-// 				key_owner_proof
-// 			),
-// 			Error::<Test>::InvalidKeyOwnershipProof,
-// 		);
-//
-// 		// it should fail as well if we create a key owner proof
-// 		// for a different authority than the offender
-// 		let key = (sp_consensus_poc::KEY_TYPE, &authorities[1].0);
-// 		let key_owner_proof = Historical::prove(key).unwrap();
-//
-// 		// we need to progress to a new era to make sure that the key
-// 		// ownership proof is properly checked, otherwise since the state
-// 		// is still available the historical module will just check
-// 		// against current session data.
-// 		start_era(2);
-//
-// 		assert_err!(
-// 			Babe::report_equivocation_unsigned(Origin::none(), equivocation_proof, key_owner_proof),
-// 			Error::<Test>::InvalidKeyOwnershipProof,
-// 		);
-// 	})
-// }
-//
-// #[test]
-// fn report_equivocation_invalid_equivocation_proof() {
-// 	use sp_runtime::traits::Header;
-//
-// 	let (pairs, mut ext) = new_test_ext_with_pairs(3);
-//
-// 	ext.execute_with(|| {
-// 		start_era(1);
-//
-// 		let authorities = Babe::authorities();
-//
-// 		// we will use the validator at index 0 as the offending authority
-// 		let offending_validator_index = 0;
-// 		let offending_authority_pair = pairs
-// 			.into_iter()
-// 			.find(|p| p.public() == authorities[offending_validator_index].0)
-// 			.unwrap();
-//
-// 		// create the key ownership proof
-// 		let key = (
-// 			sp_consensus_poc::KEY_TYPE,
-// 			&offending_authority_pair.public(),
-// 		);
-// 		let key_owner_proof = Historical::prove(key).unwrap();
-//
-// 		let assert_invalid_equivocation = |equivocation_proof| {
-// 			assert_err!(
-// 				Babe::report_equivocation_unsigned(
-// 					Origin::none(),
-// 					equivocation_proof,
-// 					key_owner_proof.clone(),
-// 				),
-// 				Error::<Test>::InvalidEquivocationProof,
-// 			)
-// 		};
-//
-// 		// both headers have the same hash, no equivocation.
-// 		let mut equivocation_proof = generate_equivocation_proof(
-// 			offending_validator_index as u32,
-// 			&offending_authority_pair,
-// 			CurrentSlot::<Test>::get(),
-// 		);
-// 		equivocation_proof.second_header = equivocation_proof.first_header.clone();
-// 		assert_invalid_equivocation(equivocation_proof);
-//
-// 		// missing preruntime digest from one header
-// 		let mut equivocation_proof = generate_equivocation_proof(
-// 			offending_validator_index as u32,
-// 			&offending_authority_pair,
-// 			CurrentSlot::<Test>::get(),
-// 		);
-// 		equivocation_proof.first_header.digest_mut().logs.remove(0);
-// 		assert_invalid_equivocation(equivocation_proof);
-//
-// 		// missing seal from one header
-// 		let mut equivocation_proof = generate_equivocation_proof(
-// 			offending_validator_index as u32,
-// 			&offending_authority_pair,
-// 			CurrentSlot::<Test>::get(),
-// 		);
-// 		equivocation_proof.first_header.digest_mut().logs.remove(1);
-// 		assert_invalid_equivocation(equivocation_proof);
-//
-// 		// invalid slot number in proof compared to runtime digest
-// 		let mut equivocation_proof = generate_equivocation_proof(
-// 			offending_validator_index as u32,
-// 			&offending_authority_pair,
-// 			CurrentSlot::<Test>::get(),
-// 		);
-// 		equivocation_proof.slot = Slot::from(0);
-// 		assert_invalid_equivocation(equivocation_proof.clone());
-//
-// 		// different slot numbers in headers
-// 		let h1 = equivocation_proof.first_header;
-// 		let mut equivocation_proof = generate_equivocation_proof(
-// 			offending_validator_index as u32,
-// 			&offending_authority_pair,
-// 			CurrentSlot::<Test>::get() + 1,
-// 		);
-//
-// 		// use the header from the previous equivocation generated
-// 		// at the previous slot
-// 		equivocation_proof.first_header = h1.clone();
-//
-// 		assert_invalid_equivocation(equivocation_proof.clone());
-//
-// 		// invalid seal signature
-// 		let mut equivocation_proof = generate_equivocation_proof(
-// 			offending_validator_index as u32,
-// 			&offending_authority_pair,
-// 			CurrentSlot::<Test>::get() + 1,
-// 		);
-//
-// 		// replace the seal digest with the digest from the
-// 		// previous header at the previous slot
-// 		equivocation_proof.first_header.digest_mut().pop();
-// 		equivocation_proof
-// 			.first_header
-// 			.digest_mut()
-// 			.push(h1.digest().logs().last().unwrap().clone());
-//
-// 		assert_invalid_equivocation(equivocation_proof.clone());
-// 	})
-// }
-//
-// #[test]
-// fn report_equivocation_validate_unsigned_prevents_duplicates() {
-// 	use sp_runtime::transaction_validity::{
-// 		InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
-// 		ValidTransaction,
-// 	};
-//
-// 	let (pairs, mut ext) = new_test_ext_with_pairs(3);
-//
-// 	ext.execute_with(|| {
-// 		start_era(1);
-//
-// 		let authorities = Babe::authorities();
-//
-// 		// generate and report an equivocation for the validator at index 0
-// 		let offending_validator_index = 0;
-// 		let offending_authority_pair = pairs
-// 			.into_iter()
-// 			.find(|p| p.public() == authorities[offending_validator_index].0)
-// 			.unwrap();
-//
-// 		let equivocation_proof = generate_equivocation_proof(
-// 			offending_validator_index as u32,
-// 			&offending_authority_pair,
-// 			CurrentSlot::<Test>::get(),
-// 		);
-//
-// 		let key = (
-// 			sp_consensus_poc::KEY_TYPE,
-// 			&offending_authority_pair.public(),
-// 		);
-// 		let key_owner_proof = Historical::prove(key).unwrap();
-//
-// 		let inner =
-// 			Call::report_equivocation_unsigned(equivocation_proof.clone(), key_owner_proof.clone());
-//
-// 		// only local/inblock reports are allowed
-// 		assert_eq!(
-// 			<Babe as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
-// 				TransactionSource::External,
-// 				&inner,
-// 			),
-// 			InvalidTransaction::Call.into(),
-// 		);
-//
-// 		// the transaction is valid when passed as local
-// 		let tx_tag = (offending_authority_pair.public(), CurrentSlot::<Test>::get());
-// 		assert_eq!(
-// 			<Babe as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
-// 				TransactionSource::Local,
-// 				&inner,
-// 			),
-// 			TransactionValidity::Ok(ValidTransaction {
-// 				priority: TransactionPriority::max_value(),
-// 				requires: vec![],
-// 				provides: vec![("BabeEquivocation", tx_tag).encode()],
-// 				longevity: ReportLongevity::get(),
-// 				propagate: false,
-// 			})
-// 		);
-//
-// 		// the pre dispatch checks should also pass
-// 		assert_ok!(<Babe as sp_runtime::traits::ValidateUnsigned>::pre_dispatch(&inner));
-//
-// 		// we submit the report
-// 		Babe::report_equivocation_unsigned(Origin::none(), equivocation_proof, key_owner_proof)
-// 			.unwrap();
-//
-// 		// the report should now be considered stale and the transaction is invalid.
-// 		// the check for staleness should be done on both `validate_unsigned` and on `pre_dispatch`
-// 		assert_err!(
-// 			<Babe as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
-// 				TransactionSource::Local,
-// 				&inner,
-// 			),
-// 			InvalidTransaction::Stale,
-// 		);
-//
-// 		assert_err!(
-// 			<Babe as sp_runtime::traits::ValidateUnsigned>::pre_dispatch(&inner),
-// 			InvalidTransaction::Stale,
-// 		);
-// 	});
-// }
-//
-// #[test]
-// fn report_equivocation_has_valid_weight() {
-// 	// the weight depends on the size of the validator set,
-// 	// but there's a lower bound of 100 validators.
-// 	assert!(
-// 		(1..=100)
-// 			.map(<Test as Config>::WeightInfo::report_equivocation)
-// 			.collect::<Vec<_>>()
-// 			.windows(2)
-// 			.all(|w| w[0] == w[1])
-// 	);
-//
-// 	// after 100 validators the weight should keep increasing
-// 	// with every extra validator.
-// 	assert!(
-// 		(100..=1000)
-// 			.map(<Test as Config>::WeightInfo::report_equivocation)
-// 			.collect::<Vec<_>>()
-// 			.windows(2)
-// 			.all(|w| w[0] < w[1])
-// 	);
-// }
-//
-// #[test]
-// fn valid_equivocation_reports_dont_pay_fees() {
-// 	let (pairs, mut ext) = new_test_ext_with_pairs(3);
-//
-// 	ext.execute_with(|| {
-// 		start_era(1);
-//
-// 		let offending_authority_pair = &pairs[0];
-//
-// 		// generate an equivocation proof.
-// 		let equivocation_proof =
-// 			generate_equivocation_proof(0, &offending_authority_pair, CurrentSlot::<Test>::get());
-//
-// 		// create the key ownership proof.
-// 		let key_owner_proof = Historical::prove((
-// 			sp_consensus_poc::KEY_TYPE,
-// 			&offending_authority_pair.public(),
-// 		))
-// 		.unwrap();
-//
-// 		// check the dispatch info for the call.
-// 		let info = Call::<Test>::report_equivocation_unsigned(
-// 			equivocation_proof.clone(),
-// 			key_owner_proof.clone(),
-// 		)
-// 		.get_dispatch_info();
-//
-// 		// it should have non-zero weight and the fee has to be paid.
-// 		assert!(info.weight > 0);
-// 		assert_eq!(info.pays_fee, Pays::Yes);
-//
-// 		// report the equivocation.
-// 		let post_info = Babe::report_equivocation_unsigned(
-// 			Origin::none(),
-// 			equivocation_proof.clone(),
-// 			key_owner_proof.clone(),
-// 		)
-// 		.unwrap();
-//
-// 		// the original weight should be kept, but given that the report
-// 		// is valid the fee is waived.
-// 		assert!(post_info.actual_weight.is_none());
-// 		assert_eq!(post_info.pays_fee, Pays::No);
-//
-// 		// report the equivocation again which is invalid now since it is
-// 		// duplicate.
-// 		let post_info =
-// 			Babe::report_equivocation_unsigned(Origin::none(), equivocation_proof, key_owner_proof)
-// 				.err()
-// 				.unwrap()
-// 				.post_info;
-//
-// 		// the fee is not waived and the original weight is kept.
-// 		assert!(post_info.actual_weight.is_none());
-// 		assert_eq!(post_info.pays_fee, Pays::Yes);
-// 	})
-// }
+#[test]
+fn report_equivocation_current_session_works() {
+    new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
+        progress_to_block(&keypair, 1);
+
+        let keypair = Keypair::generate();
+        let farmer_id = FarmerId::from_slice(&keypair.public.to_bytes());
+
+        // generate an equivocation proof. it creates two headers at the given
+        // slot with different block hashes and signed by the given key
+        let equivocation_proof = generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
+
+        assert_eq!(Spartan::is_in_block_list(&farmer_id), false);
+
+        // report the equivocation
+        Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof).unwrap();
+
+        progress_to_block(&keypair, 2);
+
+        // check that farmer was added to block list
+        assert_eq!(Spartan::is_in_block_list(&farmer_id), true);
+    });
+}
+
+#[test]
+fn report_equivocation_old_session_works() {
+    new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
+        progress_to_block(&keypair, 1);
+
+        let keypair = Keypair::generate();
+        let farmer_id = FarmerId::from_slice(&keypair.public.to_bytes());
+
+        // generate an equivocation proof at the current slot
+        let equivocation_proof = generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
+
+        // create new block and report the equivocation
+        // from the previous block
+        progress_to_block(&keypair, 2);
+
+        assert_eq!(Spartan::is_in_block_list(&farmer_id), false);
+
+        // report the equivocation
+        Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof).unwrap();
+
+        progress_to_block(&keypair, 3);
+
+        // check that farmer was added to block list
+        assert_eq!(Spartan::is_in_block_list(&farmer_id), true);
+    })
+}
+
+#[test]
+fn report_equivocation_invalid_equivocation_proof() {
+    use sp_runtime::traits::Header;
+
+    new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
+        progress_to_block(&keypair, 1);
+
+        let keypair = Keypair::generate();
+
+        let assert_invalid_equivocation = |equivocation_proof| {
+            assert_err!(
+                Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof,),
+                Error::<Test>::InvalidEquivocationProof,
+            )
+        };
+
+        // both headers have the same hash, no equivocation.
+        let mut equivocation_proof =
+            generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
+        equivocation_proof.second_header = equivocation_proof.first_header.clone();
+        assert_invalid_equivocation(equivocation_proof);
+
+        // missing preruntime digest from one header
+        let mut equivocation_proof =
+            generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
+        equivocation_proof.first_header.digest_mut().logs.remove(0);
+        assert_invalid_equivocation(equivocation_proof);
+
+        // TODO: Unlock once we have proper signatures on blocks
+        // missing seal from one header
+        // let mut equivocation_proof =
+        //     generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
+        // equivocation_proof.first_header.digest_mut().logs.remove(1);
+        // assert_invalid_equivocation(equivocation_proof);
+
+        // invalid slot number in proof compared to runtime digest
+        let mut equivocation_proof =
+            generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
+        equivocation_proof.slot = Slot::from(0);
+        assert_invalid_equivocation(equivocation_proof.clone());
+
+        // different slot numbers in headers
+        let h1 = equivocation_proof.first_header;
+        let mut equivocation_proof =
+            generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get() + 1);
+
+        // use the header from the previous equivocation generated
+        // at the previous slot
+        equivocation_proof.first_header = h1.clone();
+
+        assert_invalid_equivocation(equivocation_proof.clone());
+
+        // TODO: Unlock once we have proper signatures on blocks
+        // invalid seal signature
+        // let mut equivocation_proof =
+        //     generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get() + 1);
+        //
+        // // replace the seal digest with the digest from the
+        // // previous header at the previous slot
+        // equivocation_proof.first_header.digest_mut().pop();
+        // equivocation_proof
+        //     .first_header
+        //     .digest_mut()
+        //     .push(h1.digest().logs().last().unwrap().clone());
+        //
+        // assert_invalid_equivocation(equivocation_proof.clone());
+    })
+}
+
+#[test]
+fn report_equivocation_validate_unsigned_prevents_duplicates() {
+    use sp_runtime::transaction_validity::{
+        InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
+        ValidTransaction,
+    };
+
+    new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
+        progress_to_block(&keypair, 1);
+
+        let keypair = Keypair::generate();
+        let farmer_id = FarmerId::from_slice(&keypair.public.to_bytes());
+
+        let equivocation_proof = generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
+
+        let inner = Call::report_equivocation_unsigned(equivocation_proof.clone());
+
+        // only local/inblock reports are allowed
+        assert_eq!(
+            <Spartan as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+                TransactionSource::External,
+                &inner,
+            ),
+            InvalidTransaction::Call.into(),
+        );
+
+        // the transaction is valid when passed as local
+        let tx_tag = (farmer_id, CurrentSlot::<Test>::get());
+        assert_eq!(
+            <Spartan as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+                TransactionSource::Local,
+                &inner,
+            ),
+            TransactionValidity::Ok(ValidTransaction {
+                priority: TransactionPriority::max_value(),
+                requires: vec![],
+                provides: vec![("PoCEquivocation", tx_tag).encode()],
+                longevity: ReportLongevity::get(),
+                propagate: false,
+            })
+        );
+
+        // the pre dispatch checks should also pass
+        assert_ok!(<Spartan as sp_runtime::traits::ValidateUnsigned>::pre_dispatch(&inner));
+
+        // we submit the report
+        Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof).unwrap();
+
+        // the report should now be considered stale and the transaction is invalid.
+        // the check for staleness should be done on both `validate_unsigned` and on `pre_dispatch`
+        assert_err!(
+            <Spartan as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+                TransactionSource::Local,
+                &inner,
+            ),
+            InvalidTransaction::Stale,
+        );
+
+        assert_err!(
+            <Spartan as sp_runtime::traits::ValidateUnsigned>::pre_dispatch(&inner),
+            InvalidTransaction::Stale,
+        );
+    });
+}
+
+#[test]
+fn report_equivocation_has_valid_weight() {
+    // the weight is always the same.
+    assert!((1..=1000)
+        .map(|_| { <Test as Config>::WeightInfo::report_equivocation() })
+        .all(|w| w == 1));
+}
+
+#[test]
+fn valid_equivocation_reports_dont_pay_fees() {
+    new_test_ext().execute_with(|| {
+        let keypair = Keypair::generate();
+
+        progress_to_block(&keypair, 1);
+
+        let keypair = Keypair::generate();
+
+        // generate an equivocation proof.
+        let equivocation_proof = generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
+
+        // check the dispatch info for the call.
+        let info = Call::<Test>::report_equivocation_unsigned(equivocation_proof.clone())
+            .get_dispatch_info();
+
+        // it should have non-zero weight and the fee has to be paid.
+        assert!(info.weight > 0);
+        assert_eq!(info.pays_fee, Pays::Yes);
+
+        // report the equivocation.
+        let post_info =
+            Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof.clone())
+                .unwrap();
+
+        // the original weight should be kept, but given that the report
+        // is valid the fee is waived.
+        assert!(post_info.actual_weight.is_none());
+        assert_eq!(post_info.pays_fee, Pays::No);
+
+        // report the equivocation again which is invalid now since it is
+        // duplicate.
+        let post_info = Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof)
+            .err()
+            .unwrap()
+            .post_info;
+
+        // the fee is not waived and the original weight is kept.
+        assert!(post_info.actual_weight.is_none());
+        assert_eq!(post_info.pays_fee, Pays::Yes);
+    })
+}
 
 #[test]
 fn add_epoch_configurations_migration_works() {

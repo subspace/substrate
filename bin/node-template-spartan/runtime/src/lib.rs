@@ -238,6 +238,7 @@ parameter_types! {
     pub const InitialSolutionRange: u64 = INITIAL_SOLUTION_RANGE;
     pub const SlotProbability: (u64, u64) = SLOT_PROBABILITY;
     pub const ExpectedBlockTime: Moment = MILLISECS_PER_BLOCK;
+    pub const ReportLongevity: u64 = EPOCH_DURATION_IN_BLOCKS as u64;
 }
 
 impl pallet_spartan::Config for Runtime {
@@ -251,21 +252,7 @@ impl pallet_spartan::Config for Runtime {
     type EraChangeTrigger = pallet_spartan::NormalEraChange;
     type EonChangeTrigger = pallet_spartan::NormalEonChange;
 
-    // TODO: fix for milestone 3
-    // type KeyOwnerProofSystem = Historical;
-
-    // type KeyOwnerProof = <Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(
-    // 	KeyTypeId,
-    // 	pallet_spartan::FarmerId,
-    // )>>::Proof;
-    //
-    // type KeyOwnerIdentification = <Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(
-    // 	KeyTypeId,
-    // 	pallet_spartan::FarmerId,
-    // )>>::IdentificationTuple;
-    //
-    // type HandleEquivocation =
-    // pallet_spartan::EquivocationHandler<Self::KeyOwnerIdentification, Offences>;
+    type HandleEquivocation = pallet_spartan::EquivocationHandler<OffencesPoC, ReportLongevity>;
 
     type WeightInfo = ();
 }
@@ -315,6 +302,25 @@ impl pallet_sudo::Config for Runtime {
     type Call = Call;
 }
 
+impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime
+where
+    Call: From<C>,
+{
+    type Extrinsic = UncheckedExtrinsic;
+    type OverarchingCall = Call;
+}
+
+parameter_types! {
+    pub OffencesWeightSoftLimit: Weight = Perbill::from_percent(60) *
+        BlockWeights::get().max_block;
+}
+
+impl pallet_offences_poc::Config for Runtime {
+    type Event = Event;
+    type OnOffenceHandler = PoC;
+    type WeightSoftLimit = OffencesWeightSoftLimit;
+}
+
 /// Configure the pallet-template in pallets/template.
 impl pallet_template_spartan::Config for Runtime {
     type Event = Event;
@@ -330,10 +336,11 @@ construct_runtime!(
         System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
         RandomnessCollectiveFlip: pallet_randomness_collective_flip::{Pallet, Call, Storage},
         Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
-        PoC: pallet_spartan::{Pallet, Call, Storage, Config},
+        PoC: pallet_spartan::{Pallet, Call, Storage, Config, ValidateUnsigned},
         Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
         TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
         Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
+        OffencesPoC: pallet_offences_poc::{Pallet, Call, Storage, Event},
         // Include the custom logic from the pallet-template in the runtime.
         TemplateModule: pallet_template_spartan::{Pallet, Call, Storage, Event<T>},
     }
@@ -469,20 +476,17 @@ impl_runtime_apis! {
             PoC::next_epoch()
         }
 
-        // TODO: fix for milestone 3
-        // fn submit_report_equivocation_unsigned_extrinsic(
-        // 	equivocation_proof: sp_consensus_poc::EquivocationProof<<Block as BlockT>::Header>,
-        // 	key_owner_proof: sp_consensus_poc::OpaqueKeyOwnershipProof,
-        // ) -> Option<()> {
-        // 	let key_owner_proof = key_owner_proof.decode()?;
-        //
-        //
-            // PoC::submit_unsigned_equivocation_report(
-            // 	equivocation_proof,
-            // 	key_owner_proof,
-            // )
-        // 	None
-        // }
+        fn submit_report_equivocation_unsigned_extrinsic(
+            equivocation_proof: sp_consensus_poc::EquivocationProof<<Block as BlockT>::Header>,
+        ) -> Option<()> {
+            PoC::submit_unsigned_equivocation_report(
+                equivocation_proof,
+            )
+        }
+
+        fn is_in_block_list(farmer_id: &sp_consensus_poc::FarmerId) -> bool {
+            PoC::is_in_block_list(farmer_id)
+        }
     }
 
     impl sp_session::SessionKeys<Block> for Runtime {

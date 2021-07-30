@@ -19,22 +19,28 @@
 //! Test utilities
 
 use crate::{
-    self as pallet_spartan, Config, FarmerId, NormalEonChange, NormalEpochChange, NormalEraChange,
+    self as pallet_spartan, Config, CurrentSlot, FarmerId, NormalEonChange, NormalEpochChange,
+    NormalEraChange,
 };
 use codec::Encode;
-use frame_support::{parameter_types, traits::OnInitialize};
+use frame_support::{parameter_types, traits::OnInitialize, weights::Weight};
 use frame_system::InitKind;
-use schnorrkel::Keypair;
+use ring::{digest, hmac};
+use schnorrkel::{Keypair, PublicKey};
 use sp_consensus_poc::digests::{PreDigest, Solution};
-use sp_consensus_poc::Slot;
-use sp_consensus_spartan::spartan::{Piece, Tag, SIGNING_CONTEXT};
+use sp_consensus_poc::{FarmerSignature, Slot};
+use sp_consensus_spartan::spartan::{
+    Piece, Tag, ENCODE_ROUNDS, GENESIS_PIECE_SEED, PIECE_SIZE, PRIME_SIZE_BYTES, SIGNING_CONTEXT,
+};
 use sp_core::{Public, H256};
 use sp_io;
 use sp_runtime::{
     testing::{Digest, DigestItem, Header, TestXt},
-    traits::IdentityLookup,
+    traits::{Header as _, IdentityLookup},
     Perbill,
 };
+use std::convert::TryInto;
+use std::io::Write;
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -47,7 +53,8 @@ frame_support::construct_runtime!(
     {
         System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
         Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
-        Spartan: pallet_spartan::{Pallet, Call, Storage, Config},
+        Spartan: pallet_spartan::{Pallet, Call, Storage, Config, ValidateUnsigned},
+        OffencesPoC: pallet_offences_poc::{Pallet, Call, Storage, Event},
         Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
     }
 );
@@ -128,6 +135,17 @@ impl pallet_balances::Config for Test {
     type WeightInfo = ();
 }
 
+parameter_types! {
+    pub OffencesWeightSoftLimit: Weight = Perbill::from_percent(60) *
+        BlockWeights::get().max_block;
+}
+
+impl pallet_offences_poc::Config for Test {
+    type Event = Event;
+    type OnOffenceHandler = Spartan;
+    type WeightSoftLimit = OffencesWeightSoftLimit;
+}
+
 /// 1 in 6 slots (on average, not counting collisions) will have a block.
 pub const SLOT_PROBABILITY: (u64, u64) = (3, 10);
 
@@ -142,6 +160,7 @@ parameter_types! {
     pub const InitialSolutionRange: u64 = INITIAL_SOLUTION_RANGE;
     pub const SlotProbability: (u64, u64) = SLOT_PROBABILITY;
     pub const ExpectedBlockTime: u64 = 1;
+    pub const ReportLongevity: u64 = 34;
 }
 
 impl Config for Test {
@@ -155,14 +174,12 @@ impl Config for Test {
     type EraChangeTrigger = NormalEraChange;
     type EonChangeTrigger = NormalEonChange;
 
-    // TODO: milestone 3
-    // type HandleEquivocation =
-    // 	super::EquivocationHandler<Self::KeyOwnerIdentification, Offences, ReportLongevity>;
+    type HandleEquivocation = super::EquivocationHandler<OffencesPoC, ReportLongevity>;
 
     type WeightInfo = ();
 }
 
-pub fn go_to_block(block: u64, slot: u64) {
+pub fn go_to_block(keypair: &Keypair, block: u64, slot: u64) {
     use frame_support::traits::OnFinalize;
 
     Spartan::on_finalize(System::block_number());
@@ -174,10 +191,14 @@ pub fn go_to_block(block: u64, slot: u64) {
         System::parent_hash()
     };
 
-    let keypair = Keypair::generate();
+    let spartan = spartan_codec::Spartan::<PRIME_SIZE_BYTES, PIECE_SIZE>::new(
+        genesis_piece_from_seed(GENESIS_PIECE_SEED),
+    );
+    let public_key_hash = hash_public_key(&keypair.public);
     let ctx = schnorrkel::context::signing_context(SIGNING_CONTEXT);
-    let encoding: Piece = [0u8; 4096];
-    let tag: Tag = [(block % 8) as u8; 8];
+    let nonce = 0;
+    let encoding: Piece = spartan.encode(public_key_hash, nonce, ENCODE_ROUNDS);
+    let tag: Tag = create_tag(&encoding, &Spartan::salt().to_le_bytes());
 
     let pre_digest = make_pre_digest(
         slot.into(),
@@ -195,11 +216,35 @@ pub fn go_to_block(block: u64, slot: u64) {
     Spartan::on_initialize(block);
 }
 
+fn genesis_piece_from_seed(seed: &str) -> Piece {
+    let mut piece = [0u8; PIECE_SIZE];
+    let mut input = seed.as_bytes().to_vec();
+    for mut chunk in piece.chunks_mut(digest::SHA256.output_len) {
+        input = digest::digest(&digest::SHA256, &input).as_ref().to_vec();
+        chunk.write_all(input.as_ref()).unwrap();
+    }
+    piece
+}
+
+fn hash_public_key(public_key: &PublicKey) -> [u8; PRIME_SIZE_BYTES] {
+    let mut array = [0u8; PRIME_SIZE_BYTES];
+    let hash = digest::digest(&digest::SHA256, public_key.as_ref());
+    array.copy_from_slice(&hash.as_ref()[..PRIME_SIZE_BYTES]);
+    array
+}
+
+fn create_tag(encoding: &[u8], salt: &[u8]) -> Tag {
+    let key = hmac::Key::new(hmac::HMAC_SHA256, salt);
+    hmac::sign(&key, encoding).as_ref()[0..8]
+        .try_into()
+        .unwrap()
+}
+
 /// Slots will grow accordingly to blocks
-pub fn progress_to_block(n: u64) {
+pub fn progress_to_block(keypair: &Keypair, n: u64) {
     let mut slot = u64::from(Spartan::current_slot()) + 1;
     for i in System::block_number() + 1..=n {
-        go_to_block(i, slot);
+        go_to_block(keypair, i, slot);
         slot += 1;
     }
 }
@@ -217,51 +262,64 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         .into()
 }
 
-// TODO: milestone 3
-// /// Creates an equivocation at the current block, by generating two headers.
-// pub fn generate_equivocation_proof(
-// 	offender_authority_index: u32,
-// 	offender_authority_pair: &AuthorityPair,
-// 	slot: Slot,
-// ) -> sp_consensus_poc::EquivocationProof<Header> {
-// 	use sp_consensus_poc::digests::CompatibleDigestItem;
-//
-// 	let current_block = System::block_number();
-// 	let current_slot = CurrentSlot::<Test>::get();
-//
-// 	let make_header = || {
-// 		let parent_hash = System::parent_hash();
-// 		let pre_digest = make_secondary_plain_pre_digest(offender_authority_index, slot);
-// 		System::initialize(&current_block, &parent_hash, &pre_digest, InitKind::Full);
-// 		System::set_block_number(current_block);
-// 		Timestamp::set_timestamp(current_block);
-// 		System::finalize()
-// 	};
-//
-// 	// sign the header prehash and sign it, adding it to the block as the seal
-// 	// digest item
-// 	let seal_header = |header: &mut Header| {
-// 		let prehash = header.hash();
-// 		let seal = <DigestItem as CompatibleDigestItem>::babe_seal(
-// 			offender_authority_pair.sign(prehash.as_ref()),
-// 		);
-// 		header.digest_mut().push(seal);
-// 	};
-//
-// 	// generate two headers at the current block
-// 	let mut h1 = make_header();
-// 	let mut h2 = make_header();
-//
-// 	seal_header(&mut h1);
-// 	seal_header(&mut h2);
-//
-// 	// restore previous runtime state
-// 	go_to_block(current_block, *current_slot);
-//
-// 	sp_consensus_poc::EquivocationProof {
-// 		slot,
-// 		offender: offender_authority_pair.public(),
-// 		first_header: h1,
-// 		second_header: h2,
-// 	}
-// }
+/// Creates an equivocation at the current block, by generating two headers.
+pub fn generate_equivocation_proof(
+    keypair: &Keypair,
+    slot: Slot,
+) -> sp_consensus_poc::EquivocationProof<Header> {
+    use sp_consensus_poc::digests::CompatibleDigestItem;
+
+    let current_block = System::block_number();
+    let current_slot = CurrentSlot::<Test>::get();
+
+    let ctx = schnorrkel::context::signing_context(SIGNING_CONTEXT);
+    let encoding: Piece = [0u8; 4096];
+    let tag: Tag = [(current_block % 8) as u8; 8];
+
+    let public_key = FarmerId::from_slice(&keypair.public.to_bytes());
+    let signature = keypair.sign(ctx.bytes(&tag)).to_bytes().to_vec();
+
+    let make_header = |nonce| {
+        let parent_hash = System::parent_hash();
+        let pre_digest = make_pre_digest(
+            slot,
+            Solution {
+                public_key: public_key.clone(),
+                nonce,
+                encoding: encoding.to_vec(),
+                signature: signature.clone(),
+                tag,
+            },
+        );
+        System::initialize(&current_block, &parent_hash, &pre_digest, InitKind::Full);
+        System::set_block_number(current_block);
+        Timestamp::set_timestamp(current_block);
+        System::finalize()
+    };
+
+    // sign the header prehash and sign it, adding it to the block as the seal
+    // digest item
+    let seal_header = |header: &mut Header| {
+        // let prehash = header.hash();
+        let signature: FarmerSignature = signature.clone().try_into().unwrap();
+        let seal = <DigestItem as CompatibleDigestItem>::poc_seal(signature);
+        header.digest_mut().push(seal);
+    };
+
+    // generate two headers at the current block
+    let mut h1 = make_header(0);
+    let mut h2 = make_header(1);
+
+    seal_header(&mut h1);
+    seal_header(&mut h2);
+
+    // restore previous runtime state
+    go_to_block(keypair, current_block, *current_slot);
+
+    sp_consensus_poc::EquivocationProof {
+        slot,
+        offender: public_key,
+        first_header: h1,
+        second_header: h2,
+    }
+}
