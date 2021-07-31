@@ -138,13 +138,13 @@ const SLOT_DURATION: u64 = 1000;
 const SLOT_PROBABILITY: (u64, u64) = (1, 6);
 
 /// Era duration in blocks.
-const ERA_DURATION_IN_BLOCKS: u32 = 32;
+const ERA_DURATION_IN_BLOCKS: u32 = 2016;
 
 // We assume initial plot size to be 1 GiB with piece size being 4096 bytes
 const INITIAL_SOLUTION_RANGE: u64 =
     u64::MAX / (1024 * 1024 * 1024 / 4096) * SLOT_PROBABILITY.0 / SLOT_PROBABILITY.1;
 
-const EPOCH_DURATION_IN_BLOCKS: BlockNumber = 32;
+const EPOCH_DURATION_IN_BLOCKS: BlockNumber = 256;
 const EPOCH_DURATION_IN_SLOTS: u64 =
     EPOCH_DURATION_IN_BLOCKS as u64 * SLOT_PROBABILITY.1 / SLOT_PROBABILITY.0;
 
