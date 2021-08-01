@@ -179,12 +179,63 @@ NOTE: Above commands require nightly compiler for now, make sure to install it i
 rustup toolchain install nightly
 ```
 
+### Test equivocation behavior
+1. Run bootstrap client node with farmer according to instructions in "Run with Docker" section above
+2. Start the first full client node and farmer with the same identity as the bootstrap client node:
+  1. In one terminal run full client:
+      ```bash
+      BOOTSTRAP_CLIENT_IP=$(docker inspect -f "{{.NetworkSettings.Networks.spartan.IPAddress}}" node-template-spartan)
+      docker run --rm --init -it \
+        --net spartan \
+        --name node-template-spartan-full-1 \
+        subspacelabs/node-template-spartan \
+          --dev \
+          --tmp \
+          --ws-external \
+          --bootnodes /ip4/$BOOTSTRAP_CLIENT_IP/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+      ```
+  2. In another terminal plot with the same identity:
+      ```bash
+      docker volume create spartan-farmer-1
+      docker run --rm -it \
+        --entrypoint=/bin/cp \
+        --mount source=spartan-farmer,target=/var/spartan-src \
+        --mount source=spartan-farmer-1,target=/var/spartan \
+        subspacelabs/spartan-farmer cp /var/spartan-src/identity.bin /var/spartan/identity.bin
+      docker run --rm -it \
+        --name spartan-farmer-1 \
+        --mount source=spartan-farmer-1,target=/var/spartan \
+        subspacelabs/spartan-farmer plot 256000 spartan
+      ```
+  3. And start farming while being connected to the full client:
+      ```bash
+      docker run --rm --init -it \
+        --net spartan \
+        --name spartan-farmer-1 \
+        --mount source=spartan-farmer-1,target=/var/spartan \
+        subspacelabs/spartan-farmer \
+          farm \
+          --ws-server ws://node-template-spartan-full-1:9944
+      ```
+3. Repeat 2. with `-1` replaced with `-2` everywhere in order to obtain one more pair of client and farmer
+4. Observe following messages in logs similar to these, also block production will stop:
+    ```
+    Slot author Public(X (Y...)) is equivocating at slot Z with headers W and A
+    Submitted PoC equivocation report.
+    Submitted equivocation report for author Public(X (Y...))
+    Ignoring solution for slot X provided by farmer in block list: Y
+    ```
+
 ### Run Tests
 
 ```bash
 
 # PoC tests
 cd substrate/client/consensus/poc
+cargo test
+
+# Offences PoC tests
+cd substrate/frame/offences-poc
 cargo test
 
 # Spartan tests
