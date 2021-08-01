@@ -65,10 +65,8 @@ use sp_consensus::{
 use sp_consensus_poc::inherents::PoCInherentData;
 pub use sp_consensus_poc::{
     digests::{CompatibleDigestItem, NextConfigDescriptor, NextEpochDescriptor, PreDigest},
-    ConsensusLog, FarmerId, FarmerSignature, PoCApi, PoCEpochConfiguration,
-    PoCGenesisConfiguration, POC_ENGINE_ID,
+    ConsensusLog, FarmerId, PoCApi, PoCEpochConfiguration, PoCGenesisConfiguration, POC_ENGINE_ID,
 };
-use sp_core::crypto::Public;
 use sp_inherents::{InherentData, InherentDataProviders};
 use sp_runtime::{
     generic::{BlockId, OpaqueDigestItemId},
@@ -99,6 +97,7 @@ use sc_consensus_slots::{
     SlotCompatible, SlotInfo, StorageChanges,
 };
 use schnorrkel::context::SigningContext;
+use schnorrkel::SecretKey;
 use sp_api::ApiExt;
 use sp_blockchain::{
     Error as ClientError, HeaderBackend, HeaderMetadata, ProvideCache, Result as ClientResult,
@@ -107,6 +106,8 @@ use sp_consensus_poc::digests::{NextSaltDescriptor, NextSolutionRangeDescriptor,
 use sp_consensus_poc::Randomness;
 use sp_consensus_slots::Slot;
 use sp_consensus_spartan::spartan::{Salt, Spartan, SIGNING_CONTEXT};
+use sp_core::sr25519::Pair;
+use sp_core::Pair as PairTrait;
 use std::sync::mpsc;
 
 mod verification;
@@ -131,8 +132,13 @@ pub struct NewSlotInfo {
 }
 
 /// A function that can be called whenever it is necessary to create a subscription for new slots
-pub type NewSlotNotifier =
-    Arc<Box<dyn (Fn() -> mpsc::Receiver<(NewSlotInfo, mpsc::Sender<Solution>)>) + Send + Sync>>;
+pub type NewSlotNotifier = Arc<
+    Box<
+        dyn (Fn() -> mpsc::Receiver<(NewSlotInfo, mpsc::Sender<(Solution, Vec<u8>)>)>)
+            + Send
+            + Sync,
+    >,
+>;
 
 /// PoC epoch information
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug)]
@@ -238,8 +244,11 @@ pub enum Error<B: BlockT> {
     #[display(fmt = "Header {:?} is unsealed", _0)]
     HeaderUnsealed(B::Hash),
     /// Bad signature
-    #[display(fmt = "Bad signature")]
-    BadSignature,
+    #[display(fmt = "Bad signature on {:?}", _0)]
+    BadSignature(B::Hash),
+    /// Bad solution signature
+    #[display(fmt = "Bad solution signature")]
+    BadSolutionSignature(Slot),
     /// Solution is outside of solution range
     #[display(fmt = "Solution is outside of solution range for slot {}", _0)]
     OutsideOfSolutionRange(Slot),
@@ -450,8 +459,9 @@ where
 
     let config = poc_link.config;
 
-    let new_slot_senders: Arc<Mutex<Vec<mpsc::Sender<(NewSlotInfo, mpsc::Sender<Solution>)>>>> =
-        Arc::default();
+    let new_slot_senders: Arc<
+        Mutex<Vec<mpsc::Sender<(NewSlotInfo, mpsc::Sender<(Solution, Vec<u8>)>)>>>,
+    > = Arc::default();
 
     let worker = PoCSlotWorker {
         client: client.clone(),
@@ -465,7 +475,11 @@ where
         on_claim_slot: Box::new({
             let new_slot_senders = Arc::clone(&new_slot_senders);
 
-            move |slot, epoch, salt, solution_range, solution_sender: mpsc::Sender<Solution>| {
+            move |slot,
+                  epoch,
+                  salt,
+                  solution_range,
+                  solution_sender: mpsc::Sender<(Solution, Vec<u8>)>| {
                 let slot_info = NewSlotInfo {
                     slot,
                     challenge: create_global_challenge(epoch, slot),
@@ -614,7 +628,8 @@ impl<B: BlockT> PoCWorkerHandle<B> {
 pub struct PoCWorker<B: BlockT> {
     inner: Pin<Box<dyn futures::Future<Output = ()> + Send + 'static>>,
     handle: PoCWorkerHandle<B>,
-    new_slot_senders: Arc<Mutex<Vec<mpsc::Sender<(NewSlotInfo, mpsc::Sender<Solution>)>>>>,
+    new_slot_senders:
+        Arc<Mutex<Vec<mpsc::Sender<(NewSlotInfo, mpsc::Sender<(Solution, Vec<u8>)>)>>>>,
 }
 
 impl<B: BlockT> PoCWorker<B> {
@@ -655,8 +670,9 @@ struct PoCSlotWorker<B: BlockT, C, E, I, SO, BS> {
     backoff_authoring_blocks: Option<BS>,
     epoch_changes: SharedEpochChanges<B, Epoch>,
     config: Config,
-    on_claim_slot:
-        Box<dyn Fn(Slot, &Epoch, Salt, u64, mpsc::Sender<Solution>) + Send + Sync + 'static>,
+    on_claim_slot: Box<
+        dyn Fn(Slot, &Epoch, Salt, u64, mpsc::Sender<(Solution, Vec<u8>)>) + Send + Sync + 'static,
+    >,
     spartan: Spartan,
     signing_context: SigningContext,
     block_proposal_slot_portion: SlotProportion,
@@ -679,7 +695,7 @@ where
     Error: std::error::Error + Send + From<ConsensusError> + From<I::Error> + 'static,
 {
     type EpochData = ViableEpochDescriptor<B::Hash, NumberFor<B>, Epoch>;
-    type Claim = (PreDigest, FarmerId);
+    type Claim = (PreDigest, Pair);
     type SyncOracle = SO;
     type CreateProposer =
         Pin<Box<dyn Future<Output = Result<E::Proposer, sp_consensus::Error>> + Send + 'static>>;
@@ -736,7 +752,7 @@ where
             solution_sender,
         );
 
-        while let Ok(solution) = solution_receiver.recv() {
+        while let Ok((solution, secret_key)) = solution_receiver.recv() {
             // TODO: We need also need to check for equivocation of farmers connected to *this node*
             //  during block import, currently farmers connected to this node are considered trusted
             if self
@@ -755,6 +771,8 @@ where
                 continue;
             }
 
+            let secret_key = SecretKey::from_bytes(&secret_key).ok()?;
+
             match verification::verify_solution::<B>(
                 &solution,
                 epoch.as_ref(),
@@ -766,9 +784,8 @@ where
             ) {
                 Ok(_) => {
                     debug!(target: "poc", "Claimed slot {}", slot);
-                    let public_key = solution.public_key.clone();
 
-                    return Some((PreDigest { solution, slot }, public_key));
+                    return Some((PreDigest { solution, slot }, secret_key.into()));
                 }
                 Err(error) => {
                     warn!(target: "poc", "Invalid solution received for slot {}: {:?}", slot, error);
@@ -806,22 +823,14 @@ where
     > {
         Box::new(
             move |header,
-                  _header_hash,
+                  header_hash,
                   body,
                   storage_changes,
-                  (pre_digest, public),
+                  (_pre_digest, keypair),
                   epoch_descriptor| {
-                let signature: FarmerSignature = pre_digest
-                    .solution
-                    .signature
-                    .clone()
-                    .try_into()
-                    .map_err(|_| {
-                    sp_consensus::Error::InvalidSignature(
-                        pre_digest.solution.signature.clone(),
-                        public.to_raw_vec(),
-                    )
-                })?;
+                // sign the pre-sealed hash of the block and then
+                // add it to a digest item.
+                let signature = keypair.sign(header_hash.as_ref());
                 let digest_item =
                     <DigestItemFor<B> as CompatibleDigestItem>::poc_seal(signature.into());
 

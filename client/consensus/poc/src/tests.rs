@@ -40,6 +40,7 @@ use sp_consensus_poc::Slot;
 use sp_consensus_spartan::spartan::{
     Piece, Tag, ENCODE_ROUNDS, GENESIS_PIECE_SEED, PIECE_SIZE, PRIME_SIZE_BYTES,
 };
+use sp_core::Public;
 use sp_runtime::{
     generic::DigestItem,
     traits::{Block as BlockT, DigestFor},
@@ -497,13 +498,16 @@ fn run_one_test(mutator: impl Fn(&mut TestHeader, Stage) + Send + Sync + 'static
                 if Into::<u64>::into(new_slot_info.slot) % 3 == (*peer_id) as u64 {
                     let tag: Tag = create_tag(&encoding, &new_slot_info.salt);
 
-                    let _ = solution_sender.send(Solution {
-                        public_key: FarmerId::from_slice(&keypair.public.to_bytes()),
-                        nonce,
-                        encoding: encoding.to_vec(),
-                        signature: keypair.sign(ctx.bytes(&tag)).to_bytes().to_vec(),
-                        tag,
-                    });
+                    let _ = solution_sender.send((
+                        Solution {
+                            public_key: FarmerId::from_slice(&keypair.public.to_bytes()),
+                            nonce,
+                            encoding: encoding.to_vec(),
+                            signature: keypair.sign(ctx.bytes(&tag)).to_bytes().to_vec(),
+                            tag,
+                        },
+                        keypair.secret.to_bytes().into(),
+                    ));
                 }
             }
         });

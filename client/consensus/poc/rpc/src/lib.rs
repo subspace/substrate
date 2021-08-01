@@ -43,7 +43,6 @@ const SOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
 type Slot = u64;
 type FutureResult<T> = Box<dyn rpc_future::Future<Item = T, Error = RpcError> + Send>;
 
-// TODO: Re-evaluate if we can share this with farmer
 /// Information about new slot that just arrived
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcNewSlotInfo {
@@ -72,6 +71,7 @@ pub struct RpcSolution {
 pub struct ProposedProofOfSpaceResult {
     pub slot_number: Slot,
     pub solution: Option<RpcSolution>,
+    pub secret_key: Vec<u8>,
 }
 
 /// Provides rpc methods for interacting with PoC.
@@ -112,7 +112,7 @@ pub struct PoCRpcHandler {
     manager: SubscriptionManager,
     notification_senders: Arc<Mutex<Vec<UnboundedSender<RpcNewSlotInfo>>>>,
     solution_senders:
-        Arc<Mutex<HashMap<Slot, futures::channel::mpsc::Sender<Option<RpcSolution>>>>>,
+        Arc<Mutex<HashMap<Slot, futures::channel::mpsc::Sender<ProposedProofOfSpaceResult>>>>,
 }
 
 /// PoCRpcHandler is used for notifying subscribers about arrival of new slots and for submission of
@@ -120,7 +120,7 @@ pub struct PoCRpcHandler {
 ///
 /// Internally every time slot notifier emits information about new slot, notification is sent to
 /// every subscriber, after which RPC server waits for the same number of `poc_proposeProofOfSpace`
-/// requests with `Option<RpcSolution>` in them or until timeout is exceeded. The first valid
+/// requests with `ProposedProofOfSpaceResult` in them or until timeout is exceeded. The first valid
 /// solution for a particular slot wins, others are ignored.
 impl PoCRpcHandler {
     /// Creates a new instance of the PoCRpc handler.
@@ -130,7 +130,7 @@ impl PoCRpcHandler {
     {
         let notification_senders: Arc<Mutex<Vec<UnboundedSender<RpcNewSlotInfo>>>> = Arc::default();
         let solution_senders: Arc<
-            Mutex<HashMap<Slot, futures::channel::mpsc::Sender<Option<RpcSolution>>>>,
+            Mutex<HashMap<Slot, futures::channel::mpsc::Sender<ProposedProofOfSpaceResult>>>,
         > = Arc::default();
         std::thread::Builder::new()
             .name("poc_rpc_nsn_handler".to_string())
@@ -139,7 +139,7 @@ impl PoCRpcHandler {
                 let solution_senders = Arc::clone(&solution_senders);
                 let new_slot_notifier: std::sync::mpsc::Receiver<(
                     NewSlotInfo,
-                    mpsc::Sender<Solution>,
+                    mpsc::Sender<(Solution, Vec<u8>)>,
                 )> = new_slot_notifier();
 
                 move || {
@@ -185,10 +185,13 @@ impl PoCRpcHandler {
                                 // TODO: This doesn't track what client sent a solution, allowing
                                 //  some clients to send multiple
                                 let mut potential_solutions_left = expected_solutions_count;
-                                while let Some(solution) = solution_receiver.next().await {
-                                    if let Some(solution) = solution {
-                                        let solution_send_result =
-                                            sync_solution_sender.send(Solution {
+                                while let Some(proposed_proof_of_space_result) =
+                                    solution_receiver.next().await
+                                {
+                                    if let Some(solution) = proposed_proof_of_space_result.solution
+                                    {
+                                        let solution_send_result = sync_solution_sender.send((
+                                            Solution {
                                                 public_key: FarmerId::from_slice(
                                                     &solution.public_key,
                                                 ),
@@ -196,7 +199,9 @@ impl PoCRpcHandler {
                                                 encoding: solution.encoding,
                                                 signature: solution.signature,
                                                 tag: solution.tag,
-                                            });
+                                            },
+                                            proposed_proof_of_space_result.secret_key,
+                                        ));
                                         if let Err(error) = solution_send_result {
                                             debug!("Failed to send solution: {}", error);
                                             break;
@@ -240,7 +245,7 @@ impl PoCApi for PoCRpcHandler {
             .cloned();
         let future = async move {
             if let Some(mut sender) = sender {
-                let _ = sender.send(proposed_proof_of_space_result.solution).await;
+                let _ = sender.send(proposed_proof_of_space_result).await;
             }
 
             Ok(())

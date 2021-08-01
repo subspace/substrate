@@ -22,11 +22,10 @@ use ring::digest;
 use sc_consensus_slots::CheckedHeader;
 use schnorrkel::context::SigningContext;
 use sp_consensus_poc::digests::{CompatibleDigestItem, PreDigest, Solution};
-use sp_consensus_poc::FarmerSignature;
 use sp_consensus_slots::Slot;
 use sp_consensus_spartan::spartan::{self, Piece, Salt, Spartan};
 use sp_core::Public;
-use sp_runtime::{traits::DigestItemFor, traits::Header};
+use sp_runtime::{traits::DigestItemFor, traits::Header, RuntimeAppPublic};
 use std::convert::TryInto;
 
 /// PoC verification parameters
@@ -86,10 +85,13 @@ where
         None => return Err(poc_err(Error::HeaderUnsealed(header.hash()))),
     };
 
-    // TODO: Check if we need this signature and why do we have this and another one in `pre_digest`
     let sig = seal
         .as_poc_seal()
         .ok_or_else(|| poc_err(Error::HeaderBadSeal(header.hash())))?;
+
+    // the pre-hash of the header doesn't include the seal
+    // and that's what we sign
+    let pre_hash = header.hash();
 
     if pre_digest.slot > slot_now {
         header.digest_mut().push(seal);
@@ -102,12 +104,17 @@ where
         pre_digest.slot,
     );
 
-    check_primary_header::<B>(
-        &pre_digest,
-        sig,
-        &epoch,
-        epoch.config.c,
+    // Verify that block is signed properly
+    if !pre_digest.solution.public_key.verify(&pre_hash, &sig) {
+        return Err(poc_err(Error::BadSignature(pre_hash)));
+    }
+
+    // Verify that solution is valid
+    verify_solution(
+        &pre_digest.solution,
+        epoch,
         solution_range,
+        pre_digest.slot,
         salt,
         spartan,
         signing_context,
@@ -123,34 +130,6 @@ where
 pub(super) struct VerifiedHeaderInfo<B: BlockT> {
     pub(super) pre_digest: DigestItemFor<B>,
     pub(super) seal: DigestItemFor<B>,
-}
-
-/// Check a slot proposal header. We validate that the given header is
-/// properly signed by the expected authority, and that the contained PoR proof
-/// is valid.
-fn check_primary_header<B: BlockT + Sized>(
-    pre_digest: &PreDigest,
-    _signature: FarmerSignature,
-    epoch: &Epoch,
-    _c: (u64, u64),
-    solution_range: u64,
-    salt: Salt,
-    spartan: &Spartan,
-    signing_context: &SigningContext,
-) -> Result<(), Error<B>> {
-    verify_solution(
-        &pre_digest.solution,
-        epoch,
-        solution_range,
-        pre_digest.slot,
-        salt,
-        spartan,
-        signing_context,
-    )?;
-
-    // TODO: Other verification?
-
-    Ok(())
 }
 
 pub(crate) fn verify_solution<B: BlockT + Sized>(
@@ -181,7 +160,7 @@ pub(crate) fn verify_solution<B: BlockT + Sized>(
     }
 
     if !is_signature_valid(signing_context, &solution) {
-        return Err(Error::BadSignature);
+        return Err(Error::BadSolutionSignature(slot));
     }
 
     if !spartan.is_encoding_valid(piece, solution.public_key.as_ref(), solution.nonce) {

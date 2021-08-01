@@ -28,11 +28,12 @@ use frame_system::InitKind;
 use ring::{digest, hmac};
 use schnorrkel::{Keypair, PublicKey};
 use sp_consensus_poc::digests::{PreDigest, Solution};
-use sp_consensus_poc::{FarmerSignature, Slot};
+use sp_consensus_poc::Slot;
 use sp_consensus_spartan::spartan::{
     Piece, Tag, ENCODE_ROUNDS, GENESIS_PIECE_SEED, PIECE_SIZE, PRIME_SIZE_BYTES, SIGNING_CONTEXT,
 };
-use sp_core::{Public, H256};
+use sp_core::sr25519::Pair;
+use sp_core::{Pair as PairTrait, Public, H256};
 use sp_io;
 use sp_runtime::{
     testing::{Digest, DigestItem, Header, TestXt},
@@ -300,9 +301,9 @@ pub fn generate_equivocation_proof(
     // sign the header prehash and sign it, adding it to the block as the seal
     // digest item
     let seal_header = |header: &mut Header| {
-        // let prehash = header.hash();
-        let signature: FarmerSignature = signature.clone().try_into().unwrap();
-        let seal = <DigestItem as CompatibleDigestItem>::poc_seal(signature);
+        let prehash = header.hash();
+        let signature = Pair::from(keypair.secret.clone()).sign(prehash.as_ref());
+        let seal = <DigestItem as CompatibleDigestItem>::poc_seal(signature.into());
         header.digest_mut().push(seal);
     };
 

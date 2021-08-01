@@ -151,7 +151,7 @@ fn can_update_solution_range_on_era_change() {
         progress_to_block(&keypair, 5);
 
         // Second era should have solution range updated
-        assert_matches!(Spartan::solution_range(), Some(_));
+        assert!(Spartan::solution_range().is_some());
 
         // Because blocks were produced on every slot, apparent pledged space must increase and
         // solution range should decrease
@@ -187,7 +187,7 @@ fn can_update_salt_on_eon_change() {
         progress_to_block(&keypair, 6);
 
         // Second eon should have salt updated
-        assert_matches!(Spartan::salt(), 1);
+        assert_eq!(Spartan::salt(), 1);
 
         // We produce blocks on every slot
         progress_to_block(&keypair, 10);
@@ -196,7 +196,7 @@ fn can_update_salt_on_eon_change() {
         progress_to_block(&keypair, 11);
 
         // Third eon should have salt updated again
-        assert_matches!(Spartan::salt(), 2);
+        assert_eq!(Spartan::salt(), 2);
     })
 }
 
@@ -386,8 +386,6 @@ fn report_equivocation_invalid_equivocation_proof() {
 
         progress_to_block(&keypair, 1);
 
-        let keypair = Keypair::generate();
-
         let assert_invalid_equivocation = |equivocation_proof| {
             assert_err!(
                 Spartan::report_equivocation_unsigned(Origin::none(), equivocation_proof,),
@@ -407,12 +405,11 @@ fn report_equivocation_invalid_equivocation_proof() {
         equivocation_proof.first_header.digest_mut().logs.remove(0);
         assert_invalid_equivocation(equivocation_proof);
 
-        // TODO: Unlock once we have proper signatures on blocks
         // missing seal from one header
-        // let mut equivocation_proof =
-        //     generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
-        // equivocation_proof.first_header.digest_mut().logs.remove(1);
-        // assert_invalid_equivocation(equivocation_proof);
+        let mut equivocation_proof =
+            generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get());
+        equivocation_proof.first_header.digest_mut().logs.remove(1);
+        assert_invalid_equivocation(equivocation_proof);
 
         // invalid slot number in proof compared to runtime digest
         let mut equivocation_proof =
@@ -431,20 +428,19 @@ fn report_equivocation_invalid_equivocation_proof() {
 
         assert_invalid_equivocation(equivocation_proof.clone());
 
-        // TODO: Unlock once we have proper signatures on blocks
         // invalid seal signature
-        // let mut equivocation_proof =
-        //     generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get() + 1);
-        //
-        // // replace the seal digest with the digest from the
-        // // previous header at the previous slot
-        // equivocation_proof.first_header.digest_mut().pop();
-        // equivocation_proof
-        //     .first_header
-        //     .digest_mut()
-        //     .push(h1.digest().logs().last().unwrap().clone());
-        //
-        // assert_invalid_equivocation(equivocation_proof.clone());
+        let mut equivocation_proof =
+            generate_equivocation_proof(&keypair, CurrentSlot::<Test>::get() + 1);
+
+        // replace the seal digest with the digest from the
+        // previous header at the previous slot
+        equivocation_proof.first_header.digest_mut().pop();
+        equivocation_proof
+            .first_header
+            .digest_mut()
+            .push(h1.digest().logs().last().unwrap().clone());
+
+        assert_invalid_equivocation(equivocation_proof.clone());
     })
 }
 
