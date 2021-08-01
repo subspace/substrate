@@ -34,6 +34,10 @@ FROM ubuntu:20.04
 
 COPY --from=0 /code/node-template-spartan /node-template-spartan
 
+RUN mkdir /var/spartan && chown nobody:nogroup /var/spartan
+
+VOLUME /var/spartan
+
 USER nobody:nogroup
 
 ENTRYPOINT ["/node-template-spartan"]
