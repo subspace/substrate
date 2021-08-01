@@ -485,6 +485,8 @@ impl_runtime_apis! {
         }
 
         fn is_in_block_list(farmer_id: &sp_consensus_poc::FarmerId) -> bool {
+            // TODO: Either check tx pool too for pending equivocations or replace equivocation
+            //  mechanism with an alternative one, so that blocking happens faster
             PoC::is_in_block_list(farmer_id)
         }
     }
