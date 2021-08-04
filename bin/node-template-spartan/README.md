@@ -232,19 +232,19 @@ rustup toolchain install nightly
 
 # PoC tests
 cd substrate/client/consensus/poc
-cargo test
+cargo +nightly test
 
 # Offences PoC tests
 cd substrate/frame/offences-poc
-cargo test
+cargo +nightly test
 
 # Spartan tests
 cd substrate/frame/spartan
-cargo test
+cargo +nightly test
 
 # Farmer tests
 cd spartan-farmer
-cargo test
+cargo +nightly test
 
 ```
 
@@ -254,7 +254,7 @@ Once the project has been built, the following command can be used to explore al
 subcommands:
 
 ```bash
-cargo run --bin node-template-spartan -- -h
+cargo +nightly run --bin node-template-spartan -- -h
 ```
 
 ## Run
@@ -268,17 +268,17 @@ node.
 This command will start the single-node development chain with persistent state:
 
 ```bash
-cargo run --bin node-template-spartan -- --dev
+cargo +nightly run --bin node-template-spartan -- --dev
 ```
 
 Purge the development chain's state:
 
 ```bash
-cargo run --bin node-template-spartan -- purge-chain --dev
+cargo +nightly run --bin node-template-spartan -- purge-chain --dev
 ```
 
 Start the development chain with detailed logging:
 
 ```bash
-RUST_BACKTRACE=1 cargo run --bin node-template-spartan -- -ldebug --dev
+RUST_BACKTRACE=1 cargo +nightly run --bin node-template-spartan -- -ldebug --dev
 ```
