@@ -16,7 +16,6 @@ targets = ["x86_64-unknown-linux-gnu"]
 codec = { package = "parity-scale-codec", version = "2.0.0", default-features = false, features = ["derive"] }
 frame-support = { version = "3.0.0", default-features = false, path = "../support" }
 frame-system = { version = "3.0.0", default-features = false, path = "../system" }
-pallet-authorship = { version = "3.0.0", default-features = false, path = "../authorship" }
 pallet-timestamp = { version = "3.0.0", default-features = false, path = "../timestamp" }
 serde = { version = "1.0.101", optional = true }
 sp-consensus-poc = { version = "0.1.0", default-features = false, path = "../../primitives/consensus/poc" }
@@ -45,7 +44,6 @@ std = [
 	"codec/std",
 	"frame-support/std",
 	"frame-system/std",
-	"pallet-authorship/std",
 	"pallet-timestamp/std",
 	"serde",
 	"sp-consensus-poc/std",

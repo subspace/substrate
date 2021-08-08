@@ -50,7 +50,7 @@
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot;
 use parking_lot::Mutex;
-use sc_client_api::{backend::AuxStore, BlockchainEvents, ProvideUncles};
+use sc_client_api::{backend::AuxStore, BlockchainEvents, ProvideUncles, UsageProvider};
 pub use sc_consensus_slots::SlotProportion;
 use sc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_TRACE};
 use sp_api::{NumberFor, ProvideRuntimeApi};
@@ -67,21 +67,14 @@ pub use sp_consensus_poc::{
     digests::{CompatibleDigestItem, NextConfigDescriptor, NextEpochDescriptor, PreDigest},
     ConsensusLog, FarmerId, PoCApi, PoCEpochConfiguration, PoCGenesisConfiguration, POC_ENGINE_ID,
 };
-use sp_inherents::{InherentData, InherentDataProviders};
+use sp_inherents::{CreateInherentDataProviders, InherentData, InherentDataProvider};
 use sp_runtime::{
     generic::{BlockId, OpaqueDigestItemId},
     traits::{Block as BlockT, DigestItemFor, Header, Zero},
     Justifications,
 };
-use sp_timestamp::TimestampInherentData;
 use std::{
-    borrow::Cow,
-    collections::HashMap,
-    convert::TryInto,
-    pin::Pin,
-    sync::Arc,
-    time::{Duration, Instant},
-    u64,
+    borrow::Cow, collections::HashMap, convert::TryInto, pin::Pin, sync::Arc, time::Duration, u64,
 };
 
 use codec::{Decode, Encode};
@@ -93,8 +86,8 @@ use sc_consensus_epochs::{
     descendent_query, Epoch as EpochT, EpochChangesFor, SharedEpochChanges, ViableEpochDescriptor,
 };
 use sc_consensus_slots::{
-    check_equivocation, BackoffAuthoringBlocksStrategy, CheckedHeader, SimpleSlotWorker,
-    SlotCompatible, SlotInfo, StorageChanges,
+    check_equivocation, BackoffAuthoringBlocksStrategy, CheckedHeader, InherentDataProviderExt,
+    SimpleSlotWorker, SlotInfo, StorageChanges,
 };
 use schnorrkel::context::SigningContext;
 use schnorrkel::SecretKey;
@@ -285,15 +278,22 @@ pub enum Error<B: BlockT> {
     /// Farmer in block list
     #[display(fmt = "Farmer {} is in block list", _0)]
     FarmerInBlockList(FarmerId),
+    /// Check inherents error
     #[display(fmt = "Checking inherents failed: {}", _0)]
-    /// Check Inherents error
-    CheckInherents(String),
+    CheckInherents(sp_inherents::Error),
+    /// Unhandled check inherents error
+    #[display(
+        fmt = "Checking inherents unhandled error: {}",
+        "String::from_utf8_lossy(_0)"
+    )]
+    CheckInherentsUnhandled(sp_inherents::InherentIdentifier),
+    /// Create inherents error.
+    #[display(fmt = "Creating inherents failed: {}", _0)]
+    CreateInherents(sp_inherents::Error),
     /// Client error
     Client(sp_blockchain::Error),
     /// Runtime Api error.
     RuntimeApi(sp_api::ApiError),
-    /// Runtime error
-    Runtime(sp_inherents::Error),
     /// Fork tree error
     ForkTree(Box<fork_tree::Error<sp_blockchain::Error>>),
 }
@@ -330,7 +330,7 @@ impl Config {
     /// state.
     pub fn get_or_compute<B: BlockT, C>(client: &C) -> ClientResult<Self>
     where
-        C: AuxStore + ProvideRuntimeApi<B>,
+        C: AuxStore + ProvideRuntimeApi<B> + UsageProvider<B>,
         C::Api: PoCApi<B>,
     {
         trace!(target: "poc", "Getting slot duration");
@@ -370,7 +370,7 @@ impl std::ops::Deref for Config {
 }
 
 /// Parameters for PoC.
-pub struct PoCParams<B: BlockT, C, E, I, SO, SC, CAW, BS> {
+pub struct PoCParams<B: BlockT, C, E, I, SO, SC, CAW, BS, IDP> {
     /// The client to use
     pub client: Arc<C>,
 
@@ -388,8 +388,8 @@ pub struct PoCParams<B: BlockT, C, E, I, SO, SC, CAW, BS> {
     /// A sync oracle
     pub sync_oracle: SO,
 
-    /// Providers for inherent data.
-    pub inherent_data_providers: InherentDataProviders,
+    /// Something that can create the inherent data providers.
+    pub create_inherent_data_providers: IDP,
 
     /// Force authoring of blocks even if we are offline
     pub force_authoring: bool,
@@ -415,21 +415,21 @@ pub struct PoCParams<B: BlockT, C, E, I, SO, SC, CAW, BS> {
 }
 
 /// Start the PoC worker.
-pub fn start_poc<B, C, SC, E, I, SO, CAW, BS, Error>(
+pub fn start_poc<B, C, SC, E, I, SO, CAW, BS, Error, IDP>(
     PoCParams {
         client,
         select_chain,
         env,
         block_import,
         sync_oracle,
-        inherent_data_providers,
+        create_inherent_data_providers,
         force_authoring,
         backoff_authoring_blocks,
         poc_link,
         can_author_with,
         block_proposal_slot_portion,
         telemetry,
-    }: PoCParams<B, C, E, I, SO, SC, CAW, BS>,
+    }: PoCParams<B, C, E, I, SO, SC, CAW, BS, IDP>,
 ) -> Result<PoCWorker<B>, sp_consensus::Error>
 where
     B: BlockT,
@@ -454,6 +454,8 @@ where
     SO: SyncOracle + Send + Sync + Clone + 'static,
     CAW: CanAuthorWith<B> + Send + Sync + 'static,
     BS: BackoffAuthoringBlocksStrategy<NumberFor<B>> + Send + 'static,
+    IDP: CreateInherentDataProviders<B, ()> + Send + Sync + 'static,
+    IDP::InherentDataProviders: InherentDataProviderExt + Send,
 {
     const HANDLE_BUFFER_SIZE: usize = 1024;
 
@@ -515,21 +517,13 @@ where
         telemetry,
     };
 
-    register_poc_inherent_data_provider(&inherent_data_providers, config.slot_duration())?;
-    sc_consensus_uncles::register_uncles_inherent_data_provider(
-        client.clone(),
-        select_chain.clone(),
-        &inherent_data_providers,
-    )?;
-
     info!(target: "poc", "🧑‍🌾 Starting PoC Authorship worker");
     let inner = sc_consensus_slots::start_slot_worker(
         config.0.clone(),
         select_chain,
         worker,
         sync_oracle,
-        inherent_data_providers,
-        poc_link.time_source,
+        create_inherent_data_providers,
         can_author_with,
     );
 
@@ -884,28 +878,24 @@ where
         self.telemetry.clone()
     }
 
-    fn proposing_remaining_duration(
-        &self,
-        parent_head: &B::Header,
-        slot_info: &SlotInfo,
-    ) -> std::time::Duration {
+    fn proposing_remaining_duration(&self, slot_info: &SlotInfo<B>) -> std::time::Duration {
         let max_proposing = slot_info
             .duration
             .mul_f32(self.block_proposal_slot_portion.get());
 
         let slot_remaining = slot_info
             .ends_at
-            .checked_duration_since(Instant::now())
+            .checked_duration_since(std::time::Instant::now())
             .unwrap_or_default();
 
         let slot_remaining = std::cmp::min(slot_remaining, max_proposing);
 
         // If parent is genesis block, we don't require any lenience factor.
-        if parent_head.number().is_zero() {
+        if slot_info.chain_head.number().is_zero() {
             return slot_remaining;
         }
 
-        let parent_slot = match find_pre_digest::<B>(parent_head) {
+        let parent_slot = match find_pre_digest::<B>(&slot_info.chain_head) {
             Err(_) => return slot_remaining,
             Ok(d) => d.slot,
         };
@@ -1049,27 +1039,9 @@ where
     Ok(salt_digest)
 }
 
-#[derive(Default, Clone)]
-struct TimeSource(Arc<Mutex<(Option<Duration>, Vec<(Instant, u64)>)>>);
-
-impl SlotCompatible for TimeSource {
-    fn extract_timestamp_and_slot(
-        &self,
-        data: &InherentData,
-    ) -> Result<(sp_timestamp::Timestamp, Slot, std::time::Duration), sp_consensus::Error> {
-        trace!(target: "poc", "extract timestamp");
-        data.timestamp_inherent_data()
-            .and_then(|t| data.poc_inherent_data().map(|a| (t, a)))
-            .map_err(Into::into)
-            .map_err(sp_consensus::Error::InherentData)
-            .map(|(x, y)| (x, y, self.0.lock().0.take().unwrap_or_default()))
-    }
-}
-
 /// State that must be shared between the import queue and the authoring logic.
 #[derive(Clone)]
 pub struct PoCLink<Block: BlockT> {
-    time_source: TimeSource,
     epoch_changes: SharedEpochChanges<Block, Epoch>,
     config: Config,
 }
@@ -1087,32 +1059,33 @@ impl<Block: BlockT> PoCLink<Block> {
 }
 
 /// A verifier for PoC blocks.
-pub struct PoCVerifier<Block: BlockT, Client, SelectChain, CAW> {
+pub struct PoCVerifier<Block: BlockT, Client, SelectChain, CAW, CIDP> {
     client: Arc<Client>,
     select_chain: SelectChain,
-    inherent_data_providers: sp_inherents::InherentDataProviders,
+    create_inherent_data_providers: CIDP,
     config: Config,
     epoch_changes: SharedEpochChanges<Block, Epoch>,
-    time_source: TimeSource,
     can_author_with: CAW,
     telemetry: Option<TelemetryHandle>,
     spartan: Spartan,
     signing_context: SigningContext,
 }
 
-impl<Block, Client, SelectChain, CAW> PoCVerifier<Block, Client, SelectChain, CAW>
+impl<Block, Client, SelectChain, CAW, CIDP> PoCVerifier<Block, Client, SelectChain, CAW, CIDP>
 where
     Block: BlockT,
     Client: AuxStore + HeaderBackend<Block> + HeaderMetadata<Block> + ProvideRuntimeApi<Block>,
     Client::Api: BlockBuilderApi<Block> + PoCApi<Block>,
     SelectChain: sp_consensus::SelectChain<Block>,
     CAW: CanAuthorWith<Block>,
+    CIDP: CreateInherentDataProviders<Block, ()>,
 {
-    fn check_inherents(
+    async fn check_inherents(
         &self,
         block: Block,
         block_id: BlockId<Block>,
         inherent_data: InherentData,
+        create_inherent_data_providers: CIDP::InherentDataProviders,
     ) -> Result<(), Error<Block>> {
         if let Err(e) = self.can_author_with.can_author_with(&block_id) {
             debug!(
@@ -1131,14 +1104,18 @@ where
             .map_err(Error::RuntimeApi)?;
 
         if !inherent_res.ok() {
-            inherent_res.into_errors().try_for_each(|(i, e)| {
-                Err(Error::CheckInherents(
-                    self.inherent_data_providers.error_to_string(&i, &e),
-                ))
-            })
-        } else {
-            Ok(())
+            for (i, e) in inherent_res.into_errors() {
+                match create_inherent_data_providers
+                    .try_handle_error(&i, &e)
+                    .await
+                {
+                    Some(res) => res.map_err(|e| Error::CheckInherents(e))?,
+                    None => return Err(Error::CheckInherentsUnhandled(i)),
+                }
+            }
         }
+
+        Ok(())
     }
 
     fn check_and_report_equivocation(
@@ -1192,8 +1169,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Block, Client, SelectChain, CAW> Verifier<Block>
-    for PoCVerifier<Block, Client, SelectChain, CAW>
+impl<Block, Client, SelectChain, CAW, CIDP> Verifier<Block>
+    for PoCVerifier<Block, Client, SelectChain, CAW, CIDP>
 where
     Block: BlockT,
     Client: HeaderMetadata<Block, Error = sp_blockchain::Error>
@@ -1206,6 +1183,8 @@ where
     Client::Api: BlockBuilderApi<Block> + PoCApi<Block>,
     SelectChain: sp_consensus::SelectChain<Block>,
     CAW: CanAuthorWith<Block> + Send + Sync,
+    CIDP: CreateInherentDataProviders<Block, ()> + Send + Sync,
+    CIDP::InherentDataProviders: InherentDataProviderExt + Send + Sync,
 {
     async fn verify(
         &mut self,
@@ -1229,19 +1208,18 @@ where
             body,
         );
 
-        debug!(target: "poc", "We have {:?} logs in this header", header.digest().logs().len());
-        let mut inherent_data = self
-            .inherent_data_providers
-            .create_inherent_data()
-            .map_err(Error::<Block>::Runtime)?;
-
-        let (_, slot_now, _) = self
-            .time_source
-            .extract_timestamp_and_slot(&inherent_data)
-            .map_err(Error::<Block>::Extraction)?;
-
         let hash = header.hash();
         let parent_hash = *header.parent_hash();
+
+        debug!(target: "poc", "We have {:?} logs in this header", header.digest().logs().len());
+
+        let create_inherent_data_providers = self
+            .create_inherent_data_providers
+            .create_inherent_data_providers(parent_hash, ())
+            .await
+            .map_err(|e| Error::<Block>::Client(sp_consensus::Error::from(e).into()))?;
+
+        let slot_now = create_inherent_data_providers.slot();
 
         let parent_header_metadata = self
             .client
@@ -1249,56 +1227,65 @@ where
             .map_err(Error::<Block>::FetchParentHeader)?;
 
         let pre_digest = find_pre_digest::<Block>(&header)?;
-        let epoch_changes = self.epoch_changes.shared_data();
-        let epoch_descriptor = epoch_changes
-            .epoch_descriptor_for_child_of(
-                descendent_query(&*self.client),
-                &parent_hash,
-                parent_header_metadata.number,
-                pre_digest.slot,
+        let (check_header, epoch_descriptor) = {
+            let epoch_changes = self.epoch_changes.shared_data();
+            let epoch_descriptor = epoch_changes
+                .epoch_descriptor_for_child_of(
+                    descendent_query(&*self.client),
+                    &parent_hash,
+                    parent_header_metadata.number,
+                    pre_digest.slot,
+                )
+                .map_err(|e| Error::<Block>::ForkTree(Box::new(e)))?
+                .ok_or_else(|| Error::<Block>::FetchEpoch(parent_hash))?;
+            let viable_epoch = epoch_changes
+                .viable_epoch(&epoch_descriptor, |slot| Epoch::genesis(&self.config, slot))
+                .ok_or_else(|| Error::<Block>::FetchEpoch(parent_hash))?;
+            // TODO: Is it actually secure to validate it using solution range digest?
+            let solution_range = find_next_solution_range_digest::<Block>(&header)?
+                .ok_or_else(|| Error::<Block>::MissingSolutionRange(hash))?
+                .solution_range;
+            let salt = find_next_salt_digest::<Block>(&header)?
+                .ok_or_else(|| Error::<Block>::MissingSalt(hash))?
+                .salt;
+
+            if self
+                .client
+                .runtime_api()
+                .is_in_block_list(&BlockId::Hash(parent_hash), &pre_digest.solution.public_key)
+                .map_err(Error::<Block>::RuntimeApi)?
+            {
+                warn!(
+                    target: "poc",
+                    "Ignoring block with solution provided by farmer in block list: {}",
+                    pre_digest.solution.public_key
+                );
+
+                return Err(
+                    Error::<Block>::FarmerInBlockList(pre_digest.solution.public_key).into(),
+                );
+            }
+
+            // We add one to the current slot to allow for some small drift.
+            // FIXME #1019 in the future, alter this queue to allow deferring of headers
+            let v_params = verification::VerificationParams {
+                header: header.clone(),
+                pre_digest: Some(pre_digest),
+                slot_now: slot_now + 1,
+                epoch: viable_epoch.as_ref(),
+                solution_range,
+                salt: salt.to_le_bytes(),
+                spartan: &self.spartan,
+                signing_context: &self.signing_context,
+            };
+
+            (
+                verification::check_header::<Block>(v_params)?,
+                epoch_descriptor,
             )
-            .map_err(|e| Error::<Block>::ForkTree(Box::new(e)))?
-            .ok_or_else(|| Error::<Block>::FetchEpoch(parent_hash))?;
-        let viable_epoch = epoch_changes
-            .viable_epoch(&epoch_descriptor, |slot| Epoch::genesis(&self.config, slot))
-            .ok_or_else(|| Error::<Block>::FetchEpoch(parent_hash))?;
-        // TODO: Is it actually secure to validate it using solution range digest?
-        let solution_range = find_next_solution_range_digest::<Block>(&header)?
-            .ok_or_else(|| Error::<Block>::MissingSolutionRange(hash))?
-            .solution_range;
-        let salt = find_next_salt_digest::<Block>(&header)?
-            .ok_or_else(|| Error::<Block>::MissingSalt(hash))?
-            .salt;
-
-        if self
-            .client
-            .runtime_api()
-            .is_in_block_list(&BlockId::Hash(parent_hash), &pre_digest.solution.public_key)
-            .map_err(Error::<Block>::RuntimeApi)?
-        {
-            warn!(
-                target: "poc",
-                "Ignoring block with solution provided by farmer in block list: {}",
-                pre_digest.solution.public_key
-            );
-
-            return Err(Error::<Block>::FarmerInBlockList(pre_digest.solution.public_key).into());
-        }
-
-        // We add one to the current slot to allow for some small drift.
-        // FIXME #1019 in the future, alter this queue to allow deferring of headers
-        let v_params = verification::VerificationParams {
-            header: header.clone(),
-            pre_digest: Some(pre_digest),
-            slot_now: slot_now + 1,
-            epoch: viable_epoch.as_ref(),
-            solution_range,
-            salt: salt.to_le_bytes(),
-            spartan: &self.spartan,
-            signing_context: &self.signing_context,
         };
 
-        match verification::check_header::<Block>(v_params)? {
+        match check_header {
             CheckedHeader::Checked(pre_header, verified_info) => {
                 let poc_pre_digest = verified_info
                     .pre_digest
@@ -1323,10 +1310,19 @@ where
                 // to check that the internally-set timestamp in the inherents
                 // actually matches the slot set in the seal.
                 if let Some(inner_body) = body.take() {
+                    let mut inherent_data = create_inherent_data_providers
+                        .create_inherent_data()
+                        .map_err(Error::<Block>::CreateInherents)?;
                     inherent_data.poc_replace_inherent_data(slot);
                     let block = Block::new(pre_header.clone(), inner_body);
 
-                    self.check_inherents(block.clone(), BlockId::Hash(parent_hash), inherent_data)?;
+                    self.check_inherents(
+                        block.clone(),
+                        BlockId::Hash(parent_hash),
+                        inherent_data,
+                        create_inherent_data_providers,
+                    )
+                    .await?;
 
                     let (_, inner_body) = block.deconstruct();
                     body = Some(inner_body);
@@ -1363,24 +1359,6 @@ where
                 Err(Error::<Block>::TooFarInFuture(hash).into())
             }
         }
-    }
-}
-
-/// Register the PoC inherent data provider, if not registered already.
-pub fn register_poc_inherent_data_provider(
-    inherent_data_providers: &InherentDataProviders,
-    slot_duration: Duration,
-) -> Result<(), sp_consensus::Error> {
-    debug!(target: "poc", "Registering");
-    if !inherent_data_providers.has_provider(&sp_consensus_poc::inherents::INHERENT_IDENTIFIER) {
-        inherent_data_providers
-            .register_provider(sp_consensus_poc::inherents::InherentDataProvider::new(
-                slot_duration,
-            ))
-            .map_err(Into::into)
-            .map_err(sp_consensus::Error::InherentData)
-    } else {
-        Ok(())
     }
 }
 
@@ -1752,7 +1730,6 @@ where
     let epoch_changes = aux_schema::load_epoch_changes::<Block, _>(&*client, &config)?;
     let link = PoCLink {
         epoch_changes: epoch_changes.clone(),
-        time_source: Default::default(),
         config: config.clone(),
     };
 
@@ -1775,13 +1752,13 @@ where
 ///
 /// The block import object provided must be the `PocBlockImport` or a wrapper
 /// of it, otherwise crucial import logic will be omitted.
-pub fn import_queue<Block: BlockT, Client, SelectChain, Inner, CAW>(
+pub fn import_queue<Block: BlockT, Client, SelectChain, Inner, CAW, CIDP>(
     poc_link: PoCLink<Block>,
     block_import: Inner,
     justification_import: Option<BoxJustificationImport<Block>>,
     client: Arc<Client>,
     select_chain: SelectChain,
-    inherent_data_providers: InherentDataProviders,
+    create_inherent_data_providers: CIDP,
     spawner: &impl sp_core::traits::SpawnEssentialNamed,
     registry: Option<&Registry>,
     can_author_with: CAW,
@@ -1806,15 +1783,14 @@ where
     Client::Api: BlockBuilderApi<Block> + PoCApi<Block> + ApiExt<Block>,
     SelectChain: sp_consensus::SelectChain<Block> + 'static,
     CAW: CanAuthorWith<Block> + Send + Sync + 'static,
+    CIDP: CreateInherentDataProviders<Block, ()> + Send + Sync + 'static,
+    CIDP::InherentDataProviders: InherentDataProviderExt + Send + Sync,
 {
-    register_poc_inherent_data_provider(&inherent_data_providers, poc_link.config.slot_duration())?;
-
     let verifier = PoCVerifier {
         select_chain,
-        inherent_data_providers,
+        create_inherent_data_providers,
         config: poc_link.config,
         epoch_changes: poc_link.epoch_changes,
-        time_source: poc_link.time_source,
         can_author_with,
         telemetry,
         client,

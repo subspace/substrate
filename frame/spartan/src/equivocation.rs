@@ -104,9 +104,6 @@ impl<R, L> Default for EquivocationHandler<R, L> {
 
 impl<T, R, L> HandleEquivocation<T> for EquivocationHandler<R, L>
 where
-    // We use the authorship pallet to fetch the current block author and use
-    // `offchain::SendTransactionTypes` for unsigned extrinsic creation and
-    // submission.
     T: Config + frame_system::offchain::SendTransactionTypes<Call<T>>,
     // A system for reporting offences after valid equivocation reports are
     // processed.

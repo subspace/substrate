@@ -29,7 +29,6 @@ use frame_support::{
         constants::{RocksDbWeight, WEIGHT_PER_SECOND},
         Weight,
     },
-    StorageDoubleMap, StorageMap,
 };
 use sp_consensus_poc::{
     offence::{self, Kind, OffenceDetails},
@@ -105,15 +104,9 @@ impl frame_system::Config for Runtime {
     type OnSetCode = ();
 }
 
-parameter_types! {
-    pub OffencesWeightSoftLimit: Weight =
-        Perbill::from_percent(60) * BlockWeights::get().max_block;
-}
-
 impl Config for Runtime {
     type Event = Event;
     type OnOffenceHandler = OnOffenceHandler;
-    type WeightSoftLimit = OffencesWeightSoftLimit;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {

@@ -23,7 +23,7 @@ use crate::{
     NormalEraChange,
 };
 use codec::Encode;
-use frame_support::{parameter_types, traits::OnInitialize, weights::Weight};
+use frame_support::{parameter_types, traits::OnInitialize};
 use frame_system::InitKind;
 use ring::{digest, hmac};
 use schnorrkel::{Keypair, PublicKey};
@@ -104,13 +104,6 @@ parameter_types! {
     pub const UncleGenerations: u64 = 0;
 }
 
-impl pallet_authorship::Config for Test {
-    type FindAuthor = ();
-    type UncleGenerations = UncleGenerations;
-    type FilterUncle = ();
-    type EventHandler = ();
-}
-
 parameter_types! {
     pub const MinimumPeriod: u64 = 1;
 }
@@ -136,15 +129,9 @@ impl pallet_balances::Config for Test {
     type WeightInfo = ();
 }
 
-parameter_types! {
-    pub OffencesWeightSoftLimit: Weight = Perbill::from_percent(60) *
-        BlockWeights::get().max_block;
-}
-
 impl pallet_offences_poc::Config for Test {
     type Event = Event;
     type OnOffenceHandler = Spartan;
-    type WeightSoftLimit = OffencesWeightSoftLimit;
 }
 
 /// 1 in 6 slots (on average, not counting collisions) will have a block.

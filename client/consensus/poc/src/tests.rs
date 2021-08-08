@@ -36,7 +36,7 @@ use sp_consensus::{
     import_queue::{BoxBlockImport, BoxJustificationImport},
     AlwaysCanAuthor, DisableProofRecording, NoNetwork as DummyOracle, Proposal,
 };
-use sp_consensus_poc::Slot;
+use sp_consensus_poc::{inherents::InherentDataProvider, Slot};
 use sp_consensus_spartan::spartan::{
     Piece, Tag, ENCODE_ROUNDS, GENESIS_PIECE_SEED, PIECE_SIZE, PRIME_SIZE_BYTES,
 };
@@ -45,6 +45,7 @@ use sp_runtime::{
     generic::DigestItem,
     traits::{Block as BlockT, DigestFor},
 };
+use sp_timestamp::InherentDataProvider as TimestampInherentDataProvider;
 use std::io::Write;
 use std::{cell::RefCell, task::Poll, time::Duration};
 
@@ -257,7 +258,19 @@ type TestSelectChain =
     substrate_test_runtime_client::LongestChain<substrate_test_runtime_client::Backend, TestBlock>;
 
 pub struct TestVerifier {
-    inner: PoCVerifier<TestBlock, PeersFullClient, TestSelectChain, AlwaysCanAuthor>,
+    inner: PoCVerifier<
+        TestBlock,
+        PeersFullClient,
+        TestSelectChain,
+        AlwaysCanAuthor,
+        Box<
+            dyn CreateInherentDataProviders<
+                TestBlock,
+                (),
+                InherentDataProviders = (TimestampInherentDataProvider, InherentDataProvider),
+            >,
+        >,
+    >,
     mutator: Mutator,
 }
 
@@ -282,14 +295,13 @@ impl Verifier<TestBlock> for TestVerifier {
         // apply post-sealing mutations (i.e. stripping seal, if desired).
         (self.mutator)(&mut header, Stage::PostSeal);
         self.inner
-            .verify(dbg!(origin), header, justifications, body)
+            .verify(origin, header, justifications, body)
             .await
     }
 }
 
 pub struct PeerData {
     link: PoCLink<TestBlock>,
-    inherent_data_providers: InherentDataProviders,
     block_import: Mutex<
         Option<
             BoxBlockImport<
@@ -320,7 +332,6 @@ impl TestNetFactory for PoCTestNet {
         Option<PeerData>,
     ) {
         let client = client.as_full().expect("only full clients are tested");
-        let inherent_data_providers = InherentDataProviders::new();
 
         let config = Config::get_or_compute(&*client).expect("config available");
         let (block_import, link) = crate::block_import(config, client.clone(), client.clone())
@@ -335,7 +346,6 @@ impl TestNetFactory for PoCTestNet {
             None,
             Some(PeerData {
                 link,
-                inherent_data_providers,
                 block_import: data_block_import,
             }),
         )
@@ -365,10 +375,17 @@ impl TestNetFactory for PoCTestNet {
             inner: PoCVerifier {
                 client: client.clone(),
                 select_chain: longest_chain,
-                inherent_data_providers: data.inherent_data_providers.clone(),
+                create_inherent_data_providers: Box::new(|_, _| async {
+                    let timestamp = TimestampInherentDataProvider::from_system_time();
+                    let slot = InherentDataProvider::from_timestamp_and_duration(
+                        *timestamp,
+                        Duration::from_secs(6),
+                    );
+
+                    Ok((timestamp, slot))
+                }),
                 config: data.link.config.clone(),
                 epoch_changes: data.link.epoch_changes.clone(),
-                time_source: data.link.time_source.clone(),
                 can_author_with: AlwaysCanAuthor,
                 telemetry: None,
                 spartan: Spartan::new(),
@@ -473,7 +490,15 @@ fn run_one_test(mutator: impl Fn(&mut TestHeader, Stage) + Send + Sync + 'static
             client,
             env: environ,
             sync_oracle: DummyOracle,
-            inherent_data_providers: data.inherent_data_providers.clone(),
+            create_inherent_data_providers: Box::new(|_, _| async {
+                let timestamp = TimestampInherentDataProvider::from_system_time();
+                let slot = InherentDataProvider::from_timestamp_and_duration(
+                    *timestamp,
+                    Duration::from_secs(6),
+                );
+
+                Ok((timestamp, slot))
+            }),
             force_authoring: false,
             backoff_authoring_blocks: Some(BackoffAuthoringOnFinalizedHeadLagging::default()),
             poc_link: data.link.clone(),
