@@ -55,7 +55,7 @@ frame_support::construct_runtime!(
         System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
         Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
         Spartan: pallet_spartan::{Pallet, Call, Storage, Config, ValidateUnsigned},
-        OffencesPoC: pallet_offences_poc::{Pallet, Call, Storage, Event},
+        OffencesPoC: pallet_offences_poc::{Pallet, Storage, Event},
         Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
     }
 );
@@ -121,6 +121,8 @@ parameter_types! {
 
 impl pallet_balances::Config for Test {
     type MaxLocks = ();
+    type MaxReserves = ();
+    type ReserveIdentifier = [u8; 8];
     type Balance = u128;
     type DustRemoval = ();
     type Event = Event;

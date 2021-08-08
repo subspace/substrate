@@ -7574,7 +7574,7 @@ dependencies = [
  "async-trait",
  "derive_more",
  "fork-tree",
- "futures 0.3.13",
+ "futures 0.3.15",
  "futures-timer 3.0.2",
  "log",
  "merlin",
@@ -7623,7 +7623,7 @@ dependencies = [
 name = "sc-consensus-poc-rpc"
 version = "0.1.0"
 dependencies = [
- "futures 0.3.13",
+ "futures 0.3.15",
  "futures-timer 3.0.2",
  "jsonrpc-core",
  "jsonrpc-core-client",

@@ -31,6 +31,7 @@ const POC_EPOCH_CHANGES_VERSION: &[u8] = b"poc_epoch_changes_version";
 const POC_EPOCH_CHANGES_KEY: &[u8] = b"poc_epoch_changes";
 const POC_EPOCH_CHANGES_CURRENT_VERSION: u32 = 1;
 
+/// The aux storage key used to store the block weight of the given block hash.
 fn block_weight_key<H: Encode>(block_hash: H) -> Vec<u8> {
 	(b"block_weight", block_hash).encode()
 }

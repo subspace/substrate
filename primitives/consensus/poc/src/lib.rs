@@ -63,7 +63,11 @@ pub use sp_consensus_slots::Slot;
 /// An equivocation proof for multiple block authorships on the same slot (i.e. double vote).
 pub type EquivocationProof<H> = sp_consensus_slots::EquivocationProof<H, FarmerId>;
 
-/// The weight of a PoC block.
+/// The cumulative weight of a PoC block, i.e. sum of block weights starting
+/// at this block until the genesis block.
+///
+/// Primary blocks have a weight of 1 whereas secondary blocks have a weight
+/// of 0 (regardless of whether they are plain or vrf secondary blocks).
 pub type PoCBlockWeight = u32;
 
 /// An consensus log item for PoC.
