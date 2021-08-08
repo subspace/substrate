@@ -1091,7 +1091,7 @@ cfg_if! {
 				}
 
 				fn do_trace_log() {
-					log::error!("Hey I'm runtime: {}", log::STATIC_MAX_LEVEL);
+					log::trace!("Hey I'm runtime: {}", log::STATIC_MAX_LEVEL);
 				}
 			}
 
