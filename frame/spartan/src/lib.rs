@@ -288,8 +288,9 @@ pub mod pallet {
     #[pallet::getter(fn initialized)]
     pub(super) type Initialized<T> = StorageValue<_, MaybeRandomness>;
 
-    /// Temporary value (cleared at block finalization) that includes the PoR output generated
-    /// at this block. This field should always be populated during block processing.
+    /// This field should always be populated during block processing.
+	///
+	/// It is set in `on_initialize`, before it will contain the value from the last block.
     #[pallet::storage]
     #[pallet::getter(fn author_por_randomness)]
     pub(super) type AuthorPorRandomness<T> = StorageValue<_, MaybeRandomness, ValueQuery>;
@@ -369,9 +370,6 @@ pub mod pallet {
             if let Some(Some(randomness)) = Initialized::<T>::take() {
                 Self::deposit_randomness(&randomness);
             }
-
-            // The stored author generated PoR output is ephemeral.
-            AuthorPorRandomness::<T>::kill();
 
             // remove temporary "environment" entry from storage
             Lateness::<T>::kill();

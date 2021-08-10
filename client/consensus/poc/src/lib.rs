@@ -51,16 +51,21 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot;
 use parking_lot::Mutex;
 use sc_client_api::{backend::AuxStore, BlockchainEvents, ProvideUncles, UsageProvider};
+use sc_consensus::{
+    block_import::{
+        BlockCheckParams, BlockImport, BlockImportParams, ForkChoiceStrategy, ImportResult,
+        StateAction,
+    },
+    import_queue::{BasicQueue, BoxJustificationImport, DefaultImportQueue, Verifier},
+};
 pub use sc_consensus_slots::SlotProportion;
 use sc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_TRACE};
 use sp_api::{NumberFor, ProvideRuntimeApi};
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 pub use sp_consensus::SyncOracle;
-use sp_consensus::{import_queue::BoxJustificationImport, CanAuthorWith, ImportResult};
 use sp_consensus::{
-    import_queue::{BasicQueue, CacheKeyId, DefaultImportQueue, Verifier},
-    BlockCheckParams, BlockImport, BlockImportParams, BlockOrigin, Environment,
-    Error as ConsensusError, ForkChoiceStrategy, Proposer, SelectChain, SlotData, StateAction,
+    BlockOrigin, CacheKeyId, CanAuthorWith, Environment, Error as ConsensusError, Proposer,
+    SelectChain, SlotData,
 };
 use sp_consensus_poc::inherents::PoCInherentData;
 pub use sp_consensus_poc::{
@@ -460,7 +465,7 @@ where
         + Sync
         + 'static,
     SO: SyncOracle + Send + Sync + Clone + 'static,
-    L: sp_consensus::JustificationSyncLink<B> + 'static,
+    L: sc_consensus::JustificationSyncLink<B> + 'static,
     CIDP: CreateInherentDataProviders<B, ()> + Send + Sync + 'static,
     CIDP::InherentDataProviders: InherentDataProviderExt + Send,
     BS: BackoffAuthoringBlocksStrategy<NumberFor<B>> + Send + 'static,
@@ -699,7 +704,7 @@ where
     E::Proposer: Proposer<B, Error = Error, Transaction = sp_api::TransactionFor<C, B>>,
     I: BlockImport<B, Transaction = sp_api::TransactionFor<C, B>> + Send + Sync + 'static,
     SO: SyncOracle + Send + Clone,
-    L: sp_consensus::JustificationSyncLink<B>,
+    L: sc_consensus::JustificationSyncLink<B>,
     BS: BackoffAuthoringBlocksStrategy<NumberFor<B>>,
     Error: std::error::Error + Send + From<ConsensusError> + From<I::Error> + 'static,
 {
@@ -827,7 +832,7 @@ where
                 Self::Claim,
                 Self::EpochData,
             )
-                -> Result<sp_consensus::BlockImportParams<B, I::Transaction>, sp_consensus::Error>
+                -> Result<sc_consensus::BlockImportParams<B, I::Transaction>, sp_consensus::Error>
             + Send
             + 'static,
     > {
@@ -848,7 +853,7 @@ where
                 import_block.post_digests.push(digest_item);
                 import_block.body = Some(body);
                 import_block.state_action = StateAction::ApplyChanges(
-                    sp_consensus::StorageChanges::Changes(storage_changes),
+                    sc_consensus::StorageChanges::Changes(storage_changes),
                 );
                 import_block.intermediates.insert(
                     Cow::from(INTERMEDIATE_KEY),

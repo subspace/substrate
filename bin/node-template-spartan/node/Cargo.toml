@@ -27,7 +27,7 @@ sc-service = { version = "0.10.0-dev", path = "../../../client/service", feature
 sc-telemetry = { version = "4.0.0-dev", path = "../../../client/telemetry" }
 sp-inherents = { version = "4.0.0-dev", path = "../../../primitives/inherents" }
 sc-transaction-pool = { version = "4.0.0-dev", path = "../../../client/transaction-pool" }
-sp-transaction-pool = { version = "4.0.0-dev", path = "../../../primitives/transaction-pool" }
+sc-transaction-pool-api = { version = "4.0.0-dev", path = "../../../client/transaction-pool/api" }
 sc-consensus-poc = { version = "0.1.0", path = "../../../client/consensus/poc" }
 sc-consensus-poc-rpc = { version = "0.1.0", path = "../../../client/consensus/poc/rpc" }
 sc-consensus-uncles = { version = "0.10.0-dev", path = "../../../client/consensus/uncles" }

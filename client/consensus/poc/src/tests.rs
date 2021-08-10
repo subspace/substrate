@@ -28,14 +28,12 @@ use log::debug;
 use ring::{digest, hmac};
 use sc_block_builder::{BlockBuilder, BlockBuilderProvider};
 use sc_client_api::{backend::TransactionFor, BlockchainEvents};
+use sc_consensus::{BoxBlockImport, BoxJustificationImport};
 use sc_consensus_slots::BackoffAuthoringOnFinalizedHeadLagging;
 use sc_network::config::ProtocolConfig;
 use sc_network_test::{Block as TestBlock, *};
 use schnorrkel::{Keypair, PublicKey};
-use sp_consensus::{
-    import_queue::{BoxBlockImport, BoxJustificationImport},
-    AlwaysCanAuthor, DisableProofRecording, NoNetwork as DummyOracle, Proposal,
-};
+use sp_consensus::{AlwaysCanAuthor, DisableProofRecording, NoNetwork as DummyOracle, Proposal};
 use sp_consensus_poc::{inherents::InherentDataProvider, Slot};
 use sp_consensus_spartan::spartan::{
     Piece, Tag, ENCODE_ROUNDS, GENESIS_PIECE_SEED, PIECE_SIZE, PRIME_SIZE_BYTES,
