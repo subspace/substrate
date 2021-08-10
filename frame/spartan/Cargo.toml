@@ -14,26 +14,26 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 codec = { package = "parity-scale-codec", version = "2.0.0", default-features = false, features = ["derive"] }
-frame-support = { version = "3.0.0", default-features = false, path = "../support" }
-frame-system = { version = "3.0.0", default-features = false, path = "../system" }
-pallet-timestamp = { version = "3.0.0", default-features = false, path = "../timestamp" }
-serde = { version = "1.0.101", optional = true }
+frame-support = { version = "4.0.0-dev", default-features = false, path = "../support" }
+frame-system = { version = "4.0.0-dev", default-features = false, path = "../system" }
+pallet-timestamp = { version = "4.0.0-dev", default-features = false, path = "../timestamp" }
+serde = { version = "1.0.127", optional = true }
 sp-consensus-poc = { version = "0.1.0", default-features = false, path = "../../primitives/consensus/poc" }
 sp-consensus-spartan = { version = "0.1.0", default-features = false, path = "../../primitives/consensus/spartan" }
-sp-io = { version = "3.0.0", default-features = false, path = "../../primitives/io" }
-sp-runtime = { version = "3.0.0", default-features = false, path = "../../primitives/runtime" }
-sp-staking = { version = "3.0.0", default-features = false, path = "../../primitives/staking" }
-sp-std = { version = "3.0.0", default-features = false, path = "../../primitives/std" }
+sp-io = { version = "4.0.0-dev", default-features = false, path = "../../primitives/io" }
+sp-runtime = { version = "4.0.0-dev", default-features = false, path = "../../primitives/runtime" }
+sp-staking = { version = "4.0.0-dev", default-features = false, path = "../../primitives/staking" }
+sp-std = { version = "4.0.0-dev", default-features = false, path = "../../primitives/std" }
 log = { version = "0.4.14", default-features = false }
-num-traits = { version = "0.2.8", default-features = false }
+num-traits = { version = "0.2.14", default-features = false }
 
 [dev-dependencies]
-pallet-balances = { version = "3.0.0", path = "../balances" }
+pallet-balances = { version = "4.0.0-dev", path = "../balances" }
 pallet-offences-poc = { version = "0.1.0", path = "../offences-poc" }
-pallet-staking = { version = "3.0.0", path = "../staking" }
-pallet-staking-reward-curve = { version = "3.0.0", path = "../staking/reward-curve" }
-sp-core = { version = "3.0.0", path = "../../primitives/core" }
-frame-election-provider-support = { version = "3.0.0", path = "../election-provider-support" }
+pallet-staking = { version = "4.0.0-dev", path = "../staking" }
+pallet-staking-reward-curve = { version = "4.0.0-dev", path = "../staking/reward-curve" }
+sp-core = { version = "4.0.0-dev", path = "../../primitives/core" }
+frame-election-provider-support = { version = "4.0.0-dev", path = "../election-provider-support" }
 schnorrkel = { version = "0.9.1" }
 spartan-codec = "0.1.0"
 ring = "0.16"
