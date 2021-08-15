@@ -102,7 +102,10 @@ use sp_api::ApiExt;
 use sp_blockchain::{
     Error as ClientError, HeaderBackend, HeaderMetadata, ProvideCache, Result as ClientResult,
 };
-use sp_consensus_poc::digests::{NextSaltDescriptor, NextSolutionRangeDescriptor, Solution};
+use sp_consensus_poc::digests::{
+    NextSaltDescriptor, NextSolutionRangeDescriptor, SaltDescriptor, Solution,
+    SolutionRangeDescriptor,
+};
 use sp_consensus_poc::Randomness;
 use sp_consensus_slots::Slot;
 use sp_consensus_spartan::spartan::{Salt, Spartan, SIGNING_CONTEXT};
@@ -215,9 +218,15 @@ pub enum Error<B: BlockT> {
     /// Multiple PoC solution range digests
     #[display(fmt = "Multiple PoC solution range digests, rejecting!")]
     MultipleSolutionRangeDigests,
+    /// Multiple PoC next solution range digests
+    #[display(fmt = "Multiple PoC next solution range digests, rejecting!")]
+    MultipleNextSolutionRangeDigests,
     /// Multiple PoC salt digests
     #[display(fmt = "Multiple PoC salt digests, rejecting!")]
     MultipleSaltDigests,
+    /// Multiple PoC next salt digests
+    #[display(fmt = "Multiple PoC next salt digests, rejecting!")]
+    MultipleNextSaltDigests,
     /// Could not extract timestamp and slot
     #[display(fmt = "Could not extract timestamp and slot: {:?}", _0)]
     Extraction(sp_consensus::Error),
@@ -739,8 +748,28 @@ where
         let epoch = epoch_changes
             .viable_epoch(&epoch_descriptor, |slot| Epoch::genesis(&self.config, slot))?;
         let block_id = BlockId::Hash(parent_header.hash());
-        let solution_range = self.client.runtime_api().solution_range(&block_id).ok()?;
-        let salt = self.client.runtime_api().salt(&block_id).ok()?;
+        // Here we always use parent block as the source of information, thus on the edge of the era
+        // the very first block of the era still uses solution range from the previous one, but the
+        // block after it uses "next" solution range deposited in the first block.
+        let solution_range = find_next_solution_range_digest::<B>(&parent_header)
+            .ok()?
+            .map(|d| d.solution_range)
+            .or_else(|| {
+                // We use runtime API as it will fallback to default value for genesis when there is
+                // no solution range stored yet
+                self.client.runtime_api().solution_range(&block_id).ok()
+            })?;
+        // Here we always use parent block as the source of information, thus on the edge of the eon
+        // the very first block of the eon still uses salt from the previous one, but the
+        // block after it uses "next" salt deposited in the first block.
+        let salt = find_next_salt_digest::<B>(&parent_header)
+            .ok()?
+            .map(|d| d.salt)
+            .or_else(|| {
+                // We use runtime API as it will fallback to default value for genesis when there is
+                // no salt stored yet
+                self.client.runtime_api().salt(&block_id).ok()
+            })?;
 
         let (solution_sender, solution_receiver) = mpsc::channel();
 
@@ -1001,10 +1030,10 @@ where
     Ok(config_digest)
 }
 
-/// Extract the PoC solution range change digest from the given header, if it exists.
-fn find_next_solution_range_digest<B: BlockT>(
+/// Extract the PoC solution range digest from the given header.
+fn find_solution_range_digest<B: BlockT>(
     header: &B::Header,
-) -> Result<Option<NextSolutionRangeDescriptor>, Error<B>>
+) -> Result<Option<SolutionRangeDescriptor>, Error<B>>
 where
     DigestItemFor<B>: CompatibleDigestItem,
 {
@@ -1013,10 +1042,10 @@ where
         trace!(target: "poc", "Checking log {:?}, looking for solution range digest.", log);
         let log = log.try_to::<ConsensusLog>(OpaqueDigestItemId::Consensus(&POC_ENGINE_ID));
         match (log, solution_range_digest.is_some()) {
-            (Some(ConsensusLog::NextSolutionRangeData(_)), true) => {
+            (Some(ConsensusLog::SolutionRangeData(_)), true) => {
                 return Err(poc_err(Error::MultipleSolutionRangeDigests))
             }
-            (Some(ConsensusLog::NextSolutionRangeData(solution_range)), false) => {
+            (Some(ConsensusLog::SolutionRangeData(solution_range)), false) => {
                 solution_range_digest = Some(solution_range)
             }
             _ => trace!(target: "poc", "Ignoring digest not meant for us"),
@@ -1026,10 +1055,33 @@ where
     Ok(solution_range_digest)
 }
 
-/// Extract the PoC salt change digest from the given header, if it exists.
-fn find_next_salt_digest<B: BlockT>(
+/// Extract the next PoC solution range digest from the given header if it exists.
+fn find_next_solution_range_digest<B: BlockT>(
     header: &B::Header,
-) -> Result<Option<NextSaltDescriptor>, Error<B>>
+) -> Result<Option<NextSolutionRangeDescriptor>, Error<B>>
+where
+    DigestItemFor<B>: CompatibleDigestItem,
+{
+    let mut next_solution_range_digest: Option<_> = None;
+    for log in header.digest().logs() {
+        trace!(target: "poc", "Checking log {:?}, looking for next solution range digest.", log);
+        let log = log.try_to::<ConsensusLog>(OpaqueDigestItemId::Consensus(&POC_ENGINE_ID));
+        match (log, next_solution_range_digest.is_some()) {
+            (Some(ConsensusLog::NextSolutionRangeData(_)), true) => {
+                return Err(poc_err(Error::MultipleNextSolutionRangeDigests))
+            }
+            (Some(ConsensusLog::NextSolutionRangeData(solution_range)), false) => {
+                next_solution_range_digest = Some(solution_range)
+            }
+            _ => trace!(target: "poc", "Ignoring digest not meant for us"),
+        }
+    }
+
+    Ok(next_solution_range_digest)
+}
+
+/// Extract the PoC salt digest from the given header.
+fn find_salt_digest<B: BlockT>(header: &B::Header) -> Result<Option<SaltDescriptor>, Error<B>>
 where
     DigestItemFor<B>: CompatibleDigestItem,
 {
@@ -1038,15 +1090,38 @@ where
         trace!(target: "poc", "Checking log {:?}, looking for salt digest.", log);
         let log = log.try_to::<ConsensusLog>(OpaqueDigestItemId::Consensus(&POC_ENGINE_ID));
         match (log, salt_digest.is_some()) {
-            (Some(ConsensusLog::NextSaltData(_)), true) => {
+            (Some(ConsensusLog::SaltData(_)), true) => {
                 return Err(poc_err(Error::MultipleSaltDigests))
             }
-            (Some(ConsensusLog::NextSaltData(salt)), false) => salt_digest = Some(salt),
+            (Some(ConsensusLog::SaltData(salt)), false) => salt_digest = Some(salt),
             _ => trace!(target: "poc", "Ignoring digest not meant for us"),
         }
     }
 
     Ok(salt_digest)
+}
+
+/// Extract the next PoC salt digest from the given header if it exists.
+fn find_next_salt_digest<B: BlockT>(
+    header: &B::Header,
+) -> Result<Option<NextSaltDescriptor>, Error<B>>
+where
+    DigestItemFor<B>: CompatibleDigestItem,
+{
+    let mut next_salt_digest: Option<_> = None;
+    for log in header.digest().logs() {
+        trace!(target: "poc", "Checking log {:?}, looking for salt digest.", log);
+        let log = log.try_to::<ConsensusLog>(OpaqueDigestItemId::Consensus(&POC_ENGINE_ID));
+        match (log, next_salt_digest.is_some()) {
+            (Some(ConsensusLog::NextSaltData(_)), true) => {
+                return Err(poc_err(Error::MultipleSaltDigests))
+            }
+            (Some(ConsensusLog::NextSaltData(salt)), false) => next_salt_digest = Some(salt),
+            _ => trace!(target: "poc", "Ignoring digest not meant for us"),
+        }
+    }
+
+    Ok(next_salt_digest)
 }
 
 #[derive(Default, Clone)]
@@ -1263,10 +1338,10 @@ where
             .viable_epoch(&epoch_descriptor, |slot| Epoch::genesis(&self.config, slot))
             .ok_or_else(|| Error::<Block>::FetchEpoch(parent_hash))?;
         // TODO: Is it actually secure to validate it using solution range digest?
-        let solution_range = find_next_solution_range_digest::<Block>(&header)?
+        let solution_range = find_solution_range_digest::<Block>(&header)?
             .ok_or_else(|| Error::<Block>::MissingSolutionRange(hash))?
             .solution_range;
-        let salt = find_next_salt_digest::<Block>(&header)?
+        let salt = find_salt_digest::<Block>(&header)?
             .ok_or_else(|| Error::<Block>::MissingSalt(hash))?
             .salt;
 
