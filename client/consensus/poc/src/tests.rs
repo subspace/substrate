@@ -161,7 +161,7 @@ impl DummyProposer {
             block.header.digest_mut().push(digest)
         }
         {
-            let digest_data = ConsensusLog::NextSolutionRangeData(NextSolutionRangeDescriptor {
+            let digest_data = ConsensusLog::SolutionRangeData(SolutionRangeDescriptor {
                 solution_range: u64::MAX,
             })
             .encode();
@@ -169,7 +169,7 @@ impl DummyProposer {
             block.header.digest_mut().push(digest)
         }
         {
-            let digest_data = ConsensusLog::NextSaltData(NextSaltDescriptor { salt: 0 }).encode();
+            let digest_data = ConsensusLog::SaltData(SaltDescriptor { salt: 0 }).encode();
             let digest = DigestItem::Consensus(POC_ENGINE_ID, digest_data);
             block.header.digest_mut().push(digest)
         }

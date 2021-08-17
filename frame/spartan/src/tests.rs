@@ -248,7 +248,7 @@ fn can_enact_next_config() {
             });
         let consensus_digest = DigestItem::Consensus(POC_ENGINE_ID, consensus_log.encode());
 
-        assert_eq!(header.digest.logs[2], consensus_digest.clone())
+        assert_eq!(header.digest.logs[4], consensus_digest.clone())
     });
 }
 

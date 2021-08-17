@@ -30,7 +30,11 @@ use frame_support::{
 #[cfg(not(feature = "std"))]
 use num_traits::float::FloatCore;
 use sp_consensus_poc::{
-    digests::{NextConfigDescriptor, NextEpochDescriptor, NextSolutionRangeDescriptor, PreDigest},
+    digests::{
+        NextConfigDescriptor, NextEpochDescriptor, NextSaltDescriptor, NextSolutionRangeDescriptor,
+        PreDigest, SaltDescriptor, SolutionRangeDescriptor,
+    },
+    offence::{OffenceDetails, OnOffenceHandler},
     ConsensusLog, Epoch, EquivocationProof, PoCEpochConfiguration, Slot, POC_ENGINE_ID,
 };
 pub use sp_consensus_poc::{FarmerId, RANDOMNESS_LENGTH};
@@ -51,8 +55,6 @@ mod tests;
 pub use equivocation::{EquivocationHandler, HandleEquivocation, PoCEquivocationOffence};
 
 pub use pallet::*;
-use sp_consensus_poc::digests::NextSaltDescriptor;
-use sp_consensus_poc::offence::{OffenceDetails, OnOffenceHandler};
 
 pub trait WeightInfo {
     fn plan_config_change() -> Weight;
@@ -582,6 +584,10 @@ impl<T: Config> Pallet<T> {
 
         SolutionRange::<T>::put(solution_range);
         EraStartSlot::<T>::put(current_slot);
+
+        Self::deposit_consensus(ConsensusLog::NextSolutionRangeData(
+            NextSolutionRangeDescriptor { solution_range },
+        ));
     }
 
     /// DANGEROUS: Enact an eon change. Should be done on every block where `should_eon_change` has returned `true`,
@@ -601,7 +607,11 @@ impl<T: Config> Pallet<T> {
 
         EonIndex::<T>::put(eon_index);
 
-        Salt::<T>::put(eon_index);
+        let salt = eon_index;
+
+        Salt::<T>::put(salt);
+
+        Self::deposit_consensus(ConsensusLog::NextSaltData(NextSaltDescriptor { salt }));
     }
 
     /// Finds the start slot of the current epoch. only guaranteed to
@@ -754,23 +764,21 @@ impl<T: Config> Pallet<T> {
         // Place PoR output into the `AuthorPorRandomness` storage item.
         AuthorPorRandomness::<T>::put(maybe_randomness);
 
+        // Deposit solution range data such that light client can validate blocks later.
+        Self::deposit_consensus(ConsensusLog::SolutionRangeData(SolutionRangeDescriptor {
+            solution_range: SolutionRange::<T>::get().unwrap_or_else(T::InitialSolutionRange::get),
+        }));
+        // Deposit salt data such that light client can validate blocks later.
+        Self::deposit_consensus(ConsensusLog::SaltData(SaltDescriptor {
+            salt: Salt::<T>::get(),
+        }));
+
         // enact epoch change, if necessary.
         T::EpochChangeTrigger::trigger::<T>(now);
         // enact era change, if necessary.
         T::EraChangeTrigger::trigger::<T>(now);
         // enact eon change, if necessary.
         T::EonChangeTrigger::trigger::<T>(now);
-
-        // Deposit solution range data such that light client can validate blocks later.
-        let next_solution_range = NextSolutionRangeDescriptor {
-            solution_range: SolutionRange::<T>::get().unwrap_or_else(T::InitialSolutionRange::get),
-        };
-        Self::deposit_consensus(ConsensusLog::NextSolutionRangeData(next_solution_range));
-        // Deposit salt data such that light client can validate blocks later.
-        let next_salt = NextSaltDescriptor {
-            salt: Salt::<T>::get(),
-        };
-        Self::deposit_consensus(ConsensusLog::NextSaltData(next_salt));
     }
 
     /// Call this function exactly once when an epoch changes, to update the
