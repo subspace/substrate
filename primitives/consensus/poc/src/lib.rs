@@ -33,6 +33,7 @@ use sp_std::vec::Vec;
 
 use crate::digests::{
     NextConfigDescriptor, NextEpochDescriptor, NextSaltDescriptor, NextSolutionRangeDescriptor,
+    SaltDescriptor, SolutionRangeDescriptor,
 };
 
 /// Key type for PoC module.
@@ -82,11 +83,17 @@ pub enum ConsensusLog {
     /// enact different epoch configurations.
     #[codec(index = 2)]
     NextConfigData(NextConfigDescriptor),
-    /// The era has changed, and the solution range has changed.
+    /// Solution range for this block.
     #[codec(index = 3)]
-    NextSolutionRangeData(NextSolutionRangeDescriptor),
-    /// The eon has changed, and the salt has changed.
+    SolutionRangeData(SolutionRangeDescriptor),
+    /// Salt for this block.
     #[codec(index = 4)]
+    SaltData(SaltDescriptor),
+    /// The era has changed and the solution range has changed because of that.
+    #[codec(index = 5)]
+    NextSolutionRangeData(NextSolutionRangeDescriptor),
+    /// The eon has changed and the salt has changed because of that.
+    #[codec(index = 6)]
     NextSaltData(NextSaltDescriptor),
 }
 

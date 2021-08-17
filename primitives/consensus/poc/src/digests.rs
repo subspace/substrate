@@ -99,15 +99,30 @@ impl From<NextConfigDescriptor> for PoCEpochConfiguration {
     }
 }
 
+/// Information about the solution range for the block.
+#[derive(Decode, Encode, PartialEq, Eq, Clone, RuntimeDebug)]
+pub struct SolutionRangeDescriptor {
+    /// Solution range used for challenges.
+    pub solution_range: u64,
+}
+
+/// Salt for the block.
+#[derive(Decode, Encode, PartialEq, Eq, Clone, RuntimeDebug)]
+pub struct SaltDescriptor {
+    /// Salt used with challenges.
+    pub salt: u64,
+}
+
 /// Information about the solution range, if changed. This is broadcast in the first
-/// block of the era.
+/// block of the era, but only applies to the block after that.
 #[derive(Decode, Encode, PartialEq, Eq, Clone, RuntimeDebug)]
 pub struct NextSolutionRangeDescriptor {
     /// Solution range used for challenges.
     pub solution_range: u64,
 }
 
-/// Salt, if changed. This is broadcast in the each block of the eon.
+/// Salt, if changed. This is broadcast in the each block of the eon, but only applies to the block
+/// after that.
 #[derive(Decode, Encode, PartialEq, Eq, Clone, RuntimeDebug)]
 pub struct NextSaltDescriptor {
     /// Salt used with challenges.

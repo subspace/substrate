@@ -444,7 +444,6 @@ impl_runtime_apis! {
         }
 
         fn solution_range() -> u64 {
-            // TODO: Maybe this is not a correct value to have a default value
             PoC::solution_range().unwrap_or_else(InitialSolutionRange::get)
         }
 
