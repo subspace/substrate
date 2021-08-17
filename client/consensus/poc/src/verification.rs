@@ -80,10 +80,10 @@ where
         .unwrap_or_else(|| find_pre_digest::<B>(&header))?;
 
     trace!(target: "poc", "Checking header");
-    let seal = match header.digest_mut().pop() {
-        Some(x) => x,
-        None => return Err(poc_err(Error::HeaderUnsealed(header.hash()))),
-    };
+    let seal = header
+        .digest_mut()
+        .pop()
+        .ok_or_else(|| poc_err(Error::HeaderUnsealed(header.hash())))?;
 
     let sig = seal
         .as_poc_seal()

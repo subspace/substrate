@@ -18,8 +18,8 @@
 
 //! Provides a generic wrapper around shared data. See [`SharedData`] for more information.
 
+use parking_lot::{Condvar, MappedMutexGuard, Mutex, MutexGuard};
 use std::sync::Arc;
-use parking_lot::{Mutex, MappedMutexGuard, Condvar, MutexGuard};
 
 /// Created by [`SharedDataLocked::release_mutex`].
 ///
@@ -54,8 +54,8 @@ impl<T> Drop for SharedDataLockedUpgradable<T> {
 /// Created by [`SharedData::shared_data_locked`].
 ///
 /// As long as this object isn't dropped, the shared data is held in a mutex guard and the shared
-/// data is tagged as locked. Access to the shared data is provided through [`Deref`] and
-/// [`DerefMut`]. The trick is to use [`Self::release_mutex`] to release the mutex, but still keep
+/// data is tagged as locked. Access to the shared data is provided through [`Deref`](std::ops::Deref) and
+/// [`DerefMut`](std::ops::DerefMut). The trick is to use [`Self::release_mutex`] to release the mutex, but still keep
 /// the shared data locked. This means every other thread trying to access the shared data in this
 /// time will need to wait until this lock is freed.
 ///
@@ -75,8 +75,7 @@ impl<'a, T> SharedDataLocked<'a, T> {
 	/// Release the mutex, but keep the shared data locked.
 	pub fn release_mutex(mut self) -> SharedDataLockedUpgradable<T> {
 		SharedDataLockedUpgradable {
-			shared_data: self.shared_data.take()
-				.expect("`shared_data` is only taken on drop; qed"),
+			shared_data: self.shared_data.take().expect("`shared_data` is only taken on drop; qed"),
 		}
 	}
 }
@@ -132,7 +131,7 @@ struct SharedDataInner<T> {
 /// # Example
 ///
 /// ```
-///# use sc_consensus::shared_data::SharedData;
+/// # use sc_consensus::shared_data::SharedData;
 ///
 /// let shared_data = SharedData::new(String::from("hello world"));
 ///
@@ -174,10 +173,7 @@ pub struct SharedData<T> {
 
 impl<T> Clone for SharedData<T> {
 	fn clone(&self) -> Self {
-		Self {
-			inner: self.inner.clone(),
-			cond_var: self.cond_var.clone(),
-		}
+		Self { inner: self.inner.clone(), cond_var: self.cond_var.clone() }
 	}
 }
 
@@ -228,10 +224,7 @@ impl<T> SharedData<T> {
 		debug_assert!(!guard.locked);
 		guard.locked = true;
 
-		SharedDataLocked {
-			inner: guard,
-			shared_data: Some(self.clone()),
-		}
+		SharedDataLocked { inner: guard, shared_data: Some(self.clone()) }
 	}
 }
 

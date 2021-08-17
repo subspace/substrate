@@ -19,35 +19,35 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-mod tests;
-mod utils;
 #[cfg(feature = "std")]
 mod analysis;
+mod tests;
+mod utils;
 
-pub use utils::*;
 #[cfg(feature = "std")]
-pub use analysis::{Analysis, BenchmarkSelector, RegressionModel, AnalysisChoice};
+pub use analysis::{Analysis, AnalysisChoice, BenchmarkSelector, RegressionModel};
+#[doc(hidden)]
+pub use frame_support;
+#[doc(hidden)]
+pub use log;
+#[doc(hidden)]
+pub use paste;
 #[doc(hidden)]
 pub use sp_io::storage::root as storage_root;
 #[doc(hidden)]
 pub use sp_runtime::traits::Zero;
 #[doc(hidden)]
-pub use frame_support;
-#[doc(hidden)]
-pub use sp_std::{self, vec, prelude::Vec, boxed::Box};
-#[doc(hidden)]
-pub use paste;
+pub use sp_std::{self, boxed::Box, prelude::Vec, vec};
 #[doc(hidden)]
 pub use sp_storage::TrackedStorageKey;
-#[doc(hidden)]
-pub use log;
+pub use utils::*;
 
 /// Whitelist the given account.
 #[macro_export]
 macro_rules! whitelist {
 	($acc:ident) => {
 		frame_benchmarking::benchmarking::add_to_whitelist(
-			frame_system::Account::<T>::hashed_key_for(&$acc).into()
+			frame_system::Account::<T>::hashed_key_for(&$acc).into(),
 		);
 	};
 }
@@ -302,12 +302,21 @@ macro_rules! benchmarks_iter {
 			{ $( $where_clause )* }
 			( $( $names )* )
 			( $( $names_extra )* )
-			$name { $( $code )* }: {
+			$name {
+				$( $code )*
+				let __benchmarked_call_encoded = $crate::frame_support::codec::Encode::encode(
+					&<Call<T $(, $instance )?>>::$dispatch($( $arg ),*)
+				);
+			}: {
+				let call_decoded = <
+					Call<T $(, $instance )?>
+					as $crate::frame_support::codec::Decode
+				>::decode(&mut &__benchmarked_call_encoded[..])
+					.expect("call is encoded above, encoding must be correct");
+
 				<
 					Call<T $(, $instance)? > as $crate::frame_support::traits::UnfilteredDispatchable
-				>::dispatch_bypass_filter(
-					Call::<T $(, $instance)? >::$dispatch($($arg),*), $origin.into()
-				)?;
+				>::dispatch_bypass_filter(call_decoded, $origin.into())?;
 			}
 			verify $postcode
 			$( $rest )*
@@ -736,17 +745,20 @@ macro_rules! impl_benchmark {
 					SelectedBenchmark as $crate::BenchmarkingSetup<T $(, $instance)?>
 				>::components(&selected_benchmark);
 
+				let mut progress = $crate::benchmarking::current_time();
 				// Default number of steps for a component.
 				let mut prev_steps = 10;
 
-				let repeat_benchmark = |
+				let mut repeat_benchmark = |
 					repeat: u32,
 					c: &[($crate::BenchmarkParameter, u32)],
 					results: &mut $crate::Vec<$crate::BenchmarkResults>,
 					verify: bool,
+					step: u32,
+					num_steps: u32,
 				| -> Result<(), &'static str> {
 					// Run the benchmark `repeat` times.
-					for _ in 0..repeat {
+					for r in 0..repeat {
 						// Set up the externalities environment for the setup we want to
 						// benchmark.
 						let closure_to_benchmark = <
@@ -801,11 +813,29 @@ macro_rules! impl_benchmark {
 								"Read/Write Count {:?}", read_write_count
 							);
 
+							let time = $crate::benchmarking::current_time();
+							if time.saturating_sub(progress) > 5000000000 {
+								progress = $crate::benchmarking::current_time();
+								$crate::log::info!(
+									target: "benchmark",
+									"Benchmarking {} {}/{}, run {}/{}",
+									extrinsic,
+									step,
+									num_steps,
+									r,
+									repeat,
+								);
+							}
+
 							// Time the storage root recalculation.
 							let start_storage_root = $crate::benchmarking::current_time();
 							$crate::storage_root();
 							let finish_storage_root = $crate::benchmarking::current_time();
 							let elapsed_storage_root = finish_storage_root - start_storage_root;
+
+							// TODO: Fix memory allocation issue then re-enable
+							// let read_and_written_keys = $crate::benchmarking::get_read_and_written_keys();
+							let read_and_written_keys = Default::default();
 
 							results.push($crate::BenchmarkResults {
 								components: c.to_vec(),
@@ -816,6 +846,7 @@ macro_rules! impl_benchmark {
 								writes: read_write_count.2,
 								repeat_writes: read_write_count.3,
 								proof_size: diff_pov,
+								keys: read_and_written_keys,
 							});
 						}
 
@@ -829,9 +860,9 @@ macro_rules! impl_benchmark {
 				if components.is_empty() {
 					if verify {
 						// If `--verify` is used, run the benchmark once to verify it would complete.
-						repeat_benchmark(1, Default::default(), &mut $crate::Vec::new(), true)?;
+						repeat_benchmark(1, Default::default(), &mut $crate::Vec::new(), true, 1, 1)?;
 					}
-					repeat_benchmark(repeat, Default::default(), &mut results, false)?;
+					repeat_benchmark(repeat, Default::default(), &mut results, false, 1, 1)?;
 				} else {
 					// Select the component we will be benchmarking. Each component will be benchmarked.
 					for (idx, (name, low, high)) in components.iter().enumerate() {
@@ -869,9 +900,9 @@ macro_rules! impl_benchmark {
 
 							if verify {
 								// If `--verify` is used, run the benchmark once to verify it would complete.
-								repeat_benchmark(1, &c, &mut $crate::Vec::new(), true)?;
+								repeat_benchmark(1, &c, &mut $crate::Vec::new(), true, s, num_of_steps)?;
 							}
-							repeat_benchmark(repeat, &c, &mut results, false)?;
+							repeat_benchmark(repeat, &c, &mut results, false, s, num_of_steps)?;
 						}
 					}
 				}
@@ -1059,7 +1090,6 @@ macro_rules! impl_benchmark_test {
 ///
 /// - It must be the name of a method applied to the output of the `new_test_ext` argument.
 /// - That method must have a signature capable of receiving a single argument of the form `impl FnOnce()`.
-///
 // ## Notes (not for rustdoc)
 //
 // The biggest challenge for this macro is communicating the actual test functions to be run. We
@@ -1238,9 +1268,9 @@ pub fn show_benchmark_debug_info(
 		* Verify: {:?}\n\
 		* Error message: {}",
 		sp_std::str::from_utf8(instance_string)
-		.expect("it's all just strings ran through the wasm interface. qed"),
+			.expect("it's all just strings ran through the wasm interface. qed"),
 		sp_std::str::from_utf8(benchmark)
-		.expect("it's all just strings ran through the wasm interface. qed"),
+			.expect("it's all just strings ran through the wasm interface. qed"),
 		lowest_range_values,
 		highest_range_values,
 		steps,

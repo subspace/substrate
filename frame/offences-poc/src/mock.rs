@@ -20,7 +20,7 @@
 
 #![cfg(test)]
 
-use crate as offences;
+use crate as offences_poc;
 use crate::Config;
 use codec::Encode;
 use frame_support::{
@@ -29,7 +29,6 @@ use frame_support::{
         constants::{RocksDbWeight, WEIGHT_PER_SECOND},
         Weight,
     },
-    StorageDoubleMap, StorageMap,
 };
 use sp_consensus_poc::{
     offence::{self, Kind, OffenceDetails},
@@ -70,7 +69,7 @@ frame_support::construct_runtime!(
         UncheckedExtrinsic = UncheckedExtrinsic,
     {
         System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
-        Offences: offences::{Pallet, Call, Storage, Event},
+        OffencesPoC: offences_poc::{Pallet, Storage, Event},
     }
 );
 
@@ -80,7 +79,7 @@ parameter_types! {
         frame_system::limits::BlockWeights::simple_max(2 * WEIGHT_PER_SECOND);
 }
 impl frame_system::Config for Runtime {
-    type BaseCallFilter = ();
+    type BaseCallFilter = frame_support::traits::AllowAll;
     type BlockWeights = ();
     type BlockLength = ();
     type DbWeight = RocksDbWeight;
@@ -105,15 +104,9 @@ impl frame_system::Config for Runtime {
     type OnSetCode = ();
 }
 
-parameter_types! {
-    pub OffencesWeightSoftLimit: Weight =
-        Perbill::from_percent(60) * BlockWeights::get().max_block;
-}
-
 impl Config for Runtime {
     type Event = Event;
     type OnOffenceHandler = OnOffenceHandler;
-    type WeightSoftLimit = OffencesWeightSoftLimit;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
@@ -155,4 +148,9 @@ impl<T: Clone> offence::Offence<T> for Offence<T> {
     fn time_slot(&self) -> u128 {
         self.time_slot
     }
+}
+
+/// Create the report id for the given `offender` and `time_slot` combination.
+pub fn report_id(time_slot: u128, offender: FarmerId) -> H256 {
+    OffencesPoC::report_id::<Offence<FarmerId>>(&time_slot, &offender)
 }

@@ -4,11 +4,11 @@ use std::sync::Arc;
 use sc_client_api::{ExecutorProvider, RemoteBackend};
 use node_template_spartan_runtime::{self, opaque::Block, RuntimeApi};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
-use sp_inherents::InherentDataProviders;
 use sc_executor::native_executor_instance;
 pub use sc_executor::NativeExecutor;
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_consensus_poc::SlotProportion;
+use sp_runtime::traits::Block as BlockT;
 
 // Our native executor instance.
 native_executor_instance!(
@@ -24,7 +24,7 @@ type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
 
 pub fn new_partial(config: &Configuration) -> Result<sc_service::PartialComponents<
 	FullClient, FullBackend, FullSelectChain,
-	sp_consensus::DefaultImportQueue<Block, FullClient>,
+	sc_consensus::DefaultImportQueue<Block, FullClient>,
 	sc_transaction_pool::FullPool<Block, FullClient>,
 	(
 		sc_consensus_poc::PoCBlockImport<
@@ -36,8 +36,6 @@ pub fn new_partial(config: &Configuration) -> Result<sc_service::PartialComponen
 		Option<Telemetry>,
 	)
 >, ServiceError> {
-	let inherent_data_providers = InherentDataProviders::new();
-
 	let telemetry = config.telemetry_endpoints.clone()
 		.filter(|x| !x.is_empty())
 		.map(|endpoints| -> Result<_, sc_telemetry::Error> {
@@ -66,7 +64,7 @@ pub fn new_partial(config: &Configuration) -> Result<sc_service::PartialComponen
 		config.transaction_pool.clone(),
 		config.role.is_authority().into(),
 		config.prometheus_registry(),
-		task_manager.spawn_handle(),
+		task_manager.spawn_essential_handle(),
 		client.clone(),
 	);
 
@@ -76,13 +74,29 @@ pub fn new_partial(config: &Configuration) -> Result<sc_service::PartialComponen
 		client.clone(),
 	)?;
 
+	let slot_duration = poc_link.config().slot_duration();
 	let import_queue = sc_consensus_poc::import_queue(
 		poc_link.clone(),
 		block_import.clone(),
 		None,
 		client.clone(),
 		select_chain.clone(),
-		inherent_data_providers.clone(),
+		move |_, ()| {
+			async move {
+				let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+
+				let slot =
+					sp_consensus_poc::inherents::InherentDataProvider::from_timestamp_and_duration(
+						*timestamp,
+						slot_duration,
+					);
+
+				let uncles =
+					sp_authorship::InherentDataProvider::<<Block as BlockT>::Header>::check_inherents();
+
+				Ok((timestamp, slot, uncles))
+			}
+		},
 		&task_manager.spawn_essential_handle(),
 		config.prometheus_registry(),
 		sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone()),
@@ -97,7 +111,6 @@ pub fn new_partial(config: &Configuration) -> Result<sc_service::PartialComponen
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		inherent_data_providers,
 		other: (block_import, poc_link, telemetry),
 	})
 }
@@ -112,11 +125,10 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		inherent_data_providers,
 		other: (block_import, poc_link, mut telemetry),
 	} = new_partial(&config)?;
 
-	let (network, network_status_sinks, system_rpc_tx, network_starter) =
+	let (network, system_rpc_tx, network_starter) =
 		sc_service::build_network(sc_service::BuildNetworkParams {
 			config: &config,
 			client: client.clone(),
@@ -152,18 +164,40 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 		let can_author_with =
 			sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
 
+		let client_clone = client.clone();
+		let slot_duration = poc_link.config().slot_duration();
 		let poc_config = sc_consensus_poc::PoCParams {
 			client: client.clone(),
 			select_chain: select_chain.clone(),
 			env: proposer_factory,
 			block_import,
 			sync_oracle: network.clone(),
-			inherent_data_providers: inherent_data_providers.clone(),
+			justification_sync_link: network.clone(),
+			create_inherent_data_providers: move |parent, ()| {
+				let client_clone = client_clone.clone();
+				async move {
+					let uncles = sc_consensus_uncles::create_uncles_inherent_data_provider(
+						&*client_clone,
+						parent,
+					)?;
+
+					let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+
+					let slot =
+						sp_consensus_poc::inherents::InherentDataProvider::from_timestamp_and_duration(
+							*timestamp,
+							slot_duration,
+						);
+
+					Ok((timestamp, slot, uncles))
+				}
+			},
 			force_authoring,
 			backoff_authoring_blocks,
 			poc_link,
 			can_author_with,
 			block_proposal_slot_portion: SlotProportion::new(2f32 / 3f32),
+			max_block_proposal_slot_portion: None,
 			telemetry: None
 		};
 
@@ -203,7 +237,6 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 			on_demand: None,
 			remote_blockchain: None,
 			backend,
-			network_status_sinks,
 			system_rpc_tx,
 			config,
 			telemetry: telemetry.as_mut(),
@@ -242,7 +275,7 @@ pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 	let transaction_pool = Arc::new(sc_transaction_pool::BasicPool::new_light(
 		config.transaction_pool.clone(),
 		config.prometheus_registry(),
-		task_manager.spawn_handle(),
+		task_manager.spawn_essential_handle(),
 		client.clone(),
 		on_demand.clone(),
 	));
@@ -253,20 +286,34 @@ pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 		client.clone(),
 	)?;
 
+	let slot_duration = poc_link.config().slot_duration();
 	let import_queue = sc_consensus_poc::import_queue(
 		poc_link,
 		poc_block_import,
 		None,
 		client.clone(),
 		select_chain.clone(),
-		InherentDataProviders::new(),
+		move |_, ()| async move {
+			let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+
+			let slot =
+				sp_consensus_poc::inherents::InherentDataProvider::from_timestamp_and_duration(
+					*timestamp,
+					slot_duration,
+				);
+
+			let uncles =
+				sp_authorship::InherentDataProvider::<<Block as BlockT>::Header>::check_inherents();
+
+			Ok((timestamp, slot, uncles))
+		},
 		&task_manager.spawn_essential_handle(),
 		config.prometheus_registry(),
 		sp_consensus::NeverCanAuthor,
 		telemetry.as_ref().map(|x| x.handle()),
 	)?;
 
-	let (network, network_status_sinks, system_rpc_tx, network_starter) =
+	let (network, system_rpc_tx, network_starter) =
 		sc_service::build_network(sc_service::BuildNetworkParams {
 			config: &config,
 			client: client.clone(),
@@ -294,7 +341,6 @@ pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 		keystore: keystore_container.sync_keystore(),
 		backend,
 		network,
-		network_status_sinks,
 		system_rpc_tx,
 		telemetry: telemetry.as_mut(),
 	})?;

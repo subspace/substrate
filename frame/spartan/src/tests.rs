@@ -24,8 +24,7 @@ use frame_support::{
 };
 use mock::*;
 use schnorrkel::Keypair;
-use sp_consensus_poc::digests::Solution;
-use sp_consensus_poc::{PoCEpochConfiguration, Slot};
+use sp_consensus_poc::{digests::Solution, PoCEpochConfiguration, Slot};
 use sp_core::Public;
 
 const EMPTY_RANDOMNESS: [u8; 32] = [
@@ -64,7 +63,6 @@ fn first_block_epoch_zero_start() {
         assert_eq!(SegmentIndex::<Test>::get(), 0);
         assert_eq!(UnderConstruction::<Test>::get(0), vec![por_randomness]);
         assert_eq!(Spartan::randomness(), [0; 32]);
-        assert_eq!(Spartan::author_por_randomness(), None);
         assert_eq!(NextRandomness::<Test>::get(), [0; 32]);
 
         assert_eq!(header.digest.logs.len(), 4);
@@ -94,14 +92,13 @@ fn author_por_output() {
         let pre_digest = make_pre_digest(genesis_slot, solution);
 
         System::initialize(&1, &Default::default(), &pre_digest, Default::default());
-        assert_eq!(Spartan::author_por_randomness(), None);
 
         Spartan::do_initialize(1);
         assert_eq!(Spartan::author_por_randomness(), Some(por_randomness));
 
         Spartan::on_finalize(1);
         System::finalize();
-        assert_eq!(Spartan::author_por_randomness(), None);
+        assert_eq!(Spartan::author_por_randomness(), Some(por_randomness));
     })
 }
 

@@ -290,8 +290,9 @@ pub mod pallet {
     #[pallet::getter(fn initialized)]
     pub(super) type Initialized<T> = StorageValue<_, MaybeRandomness>;
 
-    /// Temporary value (cleared at block finalization) that includes the PoR output generated
-    /// at this block. This field should always be populated during block processing.
+    /// This field should always be populated during block processing.
+	///
+	/// It is set in `on_initialize`, before it will contain the value from the last block.
     #[pallet::storage]
     #[pallet::getter(fn author_por_randomness)]
     pub(super) type AuthorPorRandomness<T> = StorageValue<_, MaybeRandomness, ValueQuery>;
@@ -372,9 +373,6 @@ pub mod pallet {
                 Self::deposit_randomness(&randomness);
             }
 
-            // The stored author generated PoR output is ephemeral.
-            AuthorPorRandomness::<T>::kill();
-
             // remove temporary "environment" entry from storage
             Lateness::<T>::kill();
         }
@@ -420,10 +418,22 @@ pub mod pallet {
         pub fn plan_config_change(
             origin: OriginFor<T>,
             config: NextConfigDescriptor,
-        ) -> DispatchResultWithPostInfo {
+        ) -> DispatchResult {
             ensure_root(origin)?;
             PendingEpochConfigChange::<T>::put(config);
-            Ok(().into())
+            Ok(())
+        }
+    }
+
+    #[pallet::validate_unsigned]
+    impl<T: Config> ValidateUnsigned for Pallet<T> {
+        type Call = Call<T>;
+        fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+            Self::validate_unsigned(source, call)
+        }
+
+        fn pre_dispatch(call: &Self::Call) -> Result<(), TransactionValidityError> {
+            Self::pre_dispatch(call)
         }
     }
 }

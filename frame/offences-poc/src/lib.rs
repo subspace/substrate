@@ -16,7 +16,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! # Offences PoC Module
+//! # Offences PoC Pallet
 //!
 //! Tracks reported offences
 
@@ -27,22 +27,21 @@ mod mock;
 mod tests;
 
 use codec::{Decode, Encode};
-use frame_support::{decl_event, decl_module, decl_storage, traits::Get, weights::Weight};
+use frame_support::weights::Weight;
 use sp_consensus_poc::{
     offence::{Kind, Offence, OffenceDetails, OffenceError, OnOffenceHandler, ReportOffence},
     FarmerId,
 };
 use sp_runtime::traits::Hash;
-use sp_std::vec::Vec;
+use sp_std::prelude::*;
+
+pub use pallet::*;
 
 /// A binary blob which represents a SCALE codec-encoded `O::TimeSlot`.
 type OpaqueTimeSlot = Vec<u8>;
 
 /// A type alias for a report identifier.
 type ReportIdOf<T> = <T as frame_system::Config>::Hash;
-
-/// Type of data stored as a deferred offence
-pub type DeferredOffenceOf = (Vec<OffenceDetails<FarmerId>>,);
 
 pub trait WeightInfo {
     fn on_initialize(d: u32) -> Weight;
@@ -54,56 +53,70 @@ impl WeightInfo for () {
     }
 }
 
-/// Offences trait
-pub trait Config: frame_system::Config {
-    /// The overarching event type.
-    type Event: From<Event> + Into<<Self as frame_system::Config>::Event>;
-    /// A handler called for every offence report.
-    type OnOffenceHandler: OnOffenceHandler<FarmerId>;
-    /// The a soft limit on maximum weight that may be consumed while dispatching deferred offences in
-    /// `on_initialize`.
-    /// Note it's going to be exceeded before we stop adding to it, so it has to be set conservatively.
-    type WeightSoftLimit: Get<Weight>;
-}
+#[frame_support::pallet]
+pub mod pallet {
+    use super::*;
+    use frame_support::pallet_prelude::*;
 
-decl_storage! {
-    trait Store for Module<T: Config> as Offences {
-        /// The primary structure that holds all offence records keyed by report identifiers.
-        Reports get(fn reports):
-            map hasher(twox_64_concat) ReportIdOf<T>
-            => Option<OffenceDetails<FarmerId>>;
+    #[pallet::pallet]
+    #[pallet::generate_store(pub(super) trait Store)]
+    pub struct Pallet<T>(_);
 
-        /// A vector of reports of the same kind that happened at the same time slot.
-        ConcurrentReportsIndex:
-            double_map hasher(twox_64_concat) Kind, hasher(twox_64_concat) OpaqueTimeSlot
-            => Vec<ReportIdOf<T>>;
-
-        /// Enumerates all reports of a kind along with the time they happened.
-        ///
-        /// All reports are sorted by the time of offence.
-        ///
-        /// Note that the actual type of this mapping is `Vec<u8>`, this is because values of
-        /// different types are not supported at the moment so we are doing the manual serialization.
-        ReportsByKindIndex: map hasher(twox_64_concat) Kind => Vec<u8>; // (O::TimeSlot, ReportIdOf<T>)
+    /// The pallet's config trait.
+    #[pallet::config]
+    pub trait Config: frame_system::Config {
+        /// The overarching event type.
+        type Event: From<Event> + IsType<<Self as frame_system::Config>::Event>;
+        /// A handler called for every offence report.
+        type OnOffenceHandler: OnOffenceHandler<FarmerId>;
     }
-}
 
-decl_event!(
+    /// The primary structure that holds all offence records keyed by report identifiers.
+    #[pallet::storage]
+    #[pallet::getter(fn reports)]
+    pub type Reports<T: Config> =
+        StorageMap<_, Twox64Concat, ReportIdOf<T>, OffenceDetails<FarmerId>>;
+
+    /// A vector of reports of the same kind that happened at the same time slot.
+    #[pallet::storage]
+    pub type ConcurrentReportsIndex<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        Kind,
+        Twox64Concat,
+        OpaqueTimeSlot,
+        Vec<ReportIdOf<T>>,
+        ValueQuery,
+    >;
+
+    /// Enumerates all reports of a kind along with the time they happened.
+    ///
+    /// All reports are sorted by the time of offence.
+    ///
+    /// Note that the actual type of this mapping is `Vec<u8>`, this is because values of
+    /// different types are not supported at the moment so we are doing the manual serialization.
+    #[pallet::storage]
+    pub type ReportsByKindIndex<T> = StorageMap<
+        _,
+        Twox64Concat,
+        Kind,
+        Vec<u8>, // (O::TimeSlot, ReportIdOf<T>)
+        ValueQuery,
+    >;
+
+    // TODO: We probably don't need this in PoC
+    /// Events type.
+    #[pallet::event]
+    #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event {
         /// There is an offence reported of the given `kind` happened at the `session_index` and
-        /// (kind-specific) time slot.
+        /// (kind-specific) time slot. This event is not deposited for duplicate slashes.
         /// \[kind, timeslot\].
         Offence(Kind, OpaqueTimeSlot),
     }
-);
-
-decl_module! {
-    pub struct Module<T: Config> for enum Call where origin: T::Origin {
-        fn deposit_event() = default;
-    }
 }
 
-impl<T: Config, O: Offence<FarmerId>> ReportOffence<FarmerId, O> for Module<T> {
+impl<T: Config, O: Offence<FarmerId>> ReportOffence<FarmerId, O> for Pallet<T> {
     fn report_offence(offence: O) -> Result<(), OffenceError> {
         let offenders = offence.offenders();
         let time_slot = offence.time_slot();
@@ -136,7 +149,7 @@ impl<T: Config, O: Offence<FarmerId>> ReportOffence<FarmerId, O> for Module<T> {
     }
 }
 
-impl<T: Config> Module<T> {
+impl<T: Config> Pallet<T> {
     /// Compute the ID for the given report properties.
     ///
     /// The report id depends on the offence kind, time slot and the id of offender.
@@ -208,7 +221,7 @@ impl<T: Config, O: Offence<FarmerId>> ReportIndexStorage<T, O> {
     fn load(time_slot: &O::TimeSlot) -> Self {
         let opaque_time_slot = time_slot.encode();
 
-        let same_kind_reports = <ReportsByKindIndex>::get(&O::ID);
+        let same_kind_reports = ReportsByKindIndex::<T>::get(&O::ID);
         let same_kind_reports =
             Vec::<(O::TimeSlot, ReportIdOf<T>)>::decode(&mut &same_kind_reports[..])
                 .unwrap_or_default();
@@ -226,13 +239,9 @@ impl<T: Config, O: Offence<FarmerId>> ReportIndexStorage<T, O> {
     fn insert(&mut self, time_slot: &O::TimeSlot, report_id: ReportIdOf<T>) {
         // Insert the report id into the list while maintaining the ordering by the time
         // slot.
-        let pos = match self
+        let pos = self
             .same_kind_reports
-            .binary_search_by_key(&time_slot, |&(ref when, _)| when)
-        {
-            Ok(pos) => pos,
-            Err(pos) => pos,
-        };
+            .partition_point(|&(ref when, _)| when <= time_slot);
         self.same_kind_reports
             .insert(pos, (time_slot.clone(), report_id));
 
@@ -242,7 +251,7 @@ impl<T: Config, O: Offence<FarmerId>> ReportIndexStorage<T, O> {
 
     /// Dump the indexes to the storage.
     fn save(self) {
-        <ReportsByKindIndex>::insert(&O::ID, self.same_kind_reports.encode());
+        ReportsByKindIndex::<T>::insert(&O::ID, self.same_kind_reports.encode());
         <ConcurrentReportsIndex<T>>::insert(
             &O::ID,
             &self.opaque_time_slot,
