@@ -62,7 +62,7 @@ ColorBlue(){
 menu(){
     echo -ne "
     ----------------------------------
-    F A R M E R
+                F A R M E R
     -=[Subspace - Spartan Testnet]=- 
     ----------------------------------
     $(ColorGreen '1)') Setup/Update Farmer
