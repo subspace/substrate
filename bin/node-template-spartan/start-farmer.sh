@@ -1,4 +1,7 @@
 #!/bin/bash
+
+set -e
+
 setup() {
     echo "Setting up docker Network, Volume, and Pulling Repo..."
     docker network create spartan
@@ -6,6 +9,7 @@ setup() {
     docker pull subspacelabs/spartan-farmer
     echo "Setup Complete."
 }
+
 run-farm() {
     echo "Starting Farm..."
     docker run --rm --init -it \
@@ -16,12 +20,13 @@ run-farm() {
         farm \
         --ws-server ws://node-template-spartan-full:9944
 }
+
 plot-1gb() {
     echo "Plotting 1gb..."
     docker run --rm -it \
-        --name spartan-farmer \
-        --mount source=spartan-farmer,target=/var/spartan \
-        subspacelabs/spartan-farmer plot 256000 spartan
+    --name spartan-farmer \
+    --mount source=spartan-farmer,target=/var/spartan \
+    subspacelabs/spartan-farmer plot 256000 spartan
 }
 wipe() {
     echo "Wiping prior installation..."
@@ -48,34 +53,34 @@ clear='\e[0m'
 ##
 
 ColorGreen(){
-	echo -ne $green$1$clear
+    echo -ne $green$1$clear
 }
 ColorBlue(){
-	echo -ne $blue$1$clear
+    echo -ne $blue$1$clear
 }
 
 menu(){
-echo -ne "
-----------------------------------
-           F A R M E R
- -=[Subspace - Spartan Testnet]=- 
-----------------------------------
-$(ColorGreen '1)') Setup/Update Farmer
-$(ColorGreen '2)') Plot 1GB of Data
-$(ColorGreen '3)') Run Farmer
-$(ColorGreen '4)') Wipe Farmer
-$(ColorGreen '5)') Erase Plot
-$(ColorGreen '0)') Exit
-$(ColorBlue 'Choose an option:') "
-        read a
-        case $a in
-	        1) setup ; menu ;;
-	        2) plot-1gb ; menu ;;
-            3) run-farm ; menu ;;
-	        4) wipe ; menu ;;
-            5) erase ; menu ;;
-		0) exit 0 ;;
-		*) echo -e $red"Wrong option."$clear; WrongCommand;;
-        esac
+    echo -ne "
+    ----------------------------------
+    F A R M E R
+    -=[Subspace - Spartan Testnet]=- 
+    ----------------------------------
+    $(ColorGreen '1)') Setup/Update Farmer
+    $(ColorGreen '2)') Plot 1GB of Data
+    $(ColorGreen '3)') Run Farmer
+    $(ColorGreen '4)') Wipe Farmer
+    $(ColorGreen '5)') Erase Plot
+    $(ColorGreen '0)') Exit
+    $(ColorBlue 'Choose an option:') "
+    read a
+    case $a in
+        1) setup ; menu ;;
+        2) plot-1gb ; menu ;;
+        3) run-farm ; menu ;;
+        4) wipe ; menu ;;
+        5) erase ; menu ;;
+        0) exit 0 ;;
+        *) echo -e $red"Wrong option."$clear; WrongCommand;;
+    esac
 }
 menu

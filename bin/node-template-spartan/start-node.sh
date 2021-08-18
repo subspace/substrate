@@ -1,4 +1,7 @@
 #!/bin/bash
+
+set -e
+
 setup() {
     echo "Setting up docker Network, Volume, and Pulling Repo..."
     docker network create spartan
