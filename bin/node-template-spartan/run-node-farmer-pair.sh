@@ -8,7 +8,7 @@ fi
 
 cd $(dirname ${BASH_SOURCE[0]})
 
-export BOOTSTRAP_CLIENT_IP=$(docker inspect -f "{{.NetworkSettings.Networks.spartan.IPAddress}}" node-template-spartan)
+export BOOTSTRAP_CLIENT_IP="165.232.157.230"
 export INSTANCE_ID="$1"
 export COMPOSE_PROJECT_NAME="spartan-$INSTANCE_ID"
 
