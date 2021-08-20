@@ -8,7 +8,6 @@ setup() {
     docker volume create spartan-node-template || /bin/true
     docker pull subspacelabs/node-template-spartan
     echo "Setup/Update Complete."
-    set -e
 }
 run-full() {
     echo "Running Full Node..."
