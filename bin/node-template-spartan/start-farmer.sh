@@ -3,13 +3,11 @@
 set -e
 
 setup() {
-    set +e # disable exit on error, due to the fact the network may be created prior
     echo "Setting up docker Network, Volume, and Pulling Repo..."
-    docker network create spartan
-    docker volume create spartan-farmer
+    docker network create spartan || /bin/true
+    docker volume create spartan-farmer || /bin/true
     docker pull subspacelabs/spartan-farmer
     echo "Setup/Update Complete."
-    set -e
 }
 
 run-farm() {
@@ -84,7 +82,7 @@ menu(){
         4) wipe ; menu ;;
         5) erase ; menu ;;
         0) exit 0 ;;
-        *) echo -e $red"Not a Valid Option, Try Again..."; menu;;
+        *) echo -e "Not a Valid Option, Try Again..."; menu;;
     esac
 }
 menu

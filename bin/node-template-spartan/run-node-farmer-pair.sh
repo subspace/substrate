@@ -13,7 +13,6 @@ cd $(dirname ${BASH_SOURCE[0]})
 export BOOTSTRAP_CLIENT_IP
 export INSTANCE_ID="$1"
 export COMPOSE_PROJECT_NAME="spartan-$INSTANCE_ID"
-echo "${2:-$(docker inspect -f "{{.NetworkSettings.Networks.spartan.IPAddress}}" node-template-spartan)}"
 stop() {
   docker-compose down -t 3 || /bin/true
   docker volume rm spartan-farmer-$INSTANCE_ID
