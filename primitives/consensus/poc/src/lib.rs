@@ -37,11 +37,13 @@ use crate::digests::{
 };
 
 /// Key type for PoC module.
-pub const KEY_TYPE: sp_core::crypto::KeyTypeId = sp_application_crypto::key_types::POC;
+pub const KEY_TYPE: sp_core::crypto::KeyTypeId = sp_core::crypto::KeyTypeId(*b"poc0");
 
 mod app {
-    use sp_application_crypto::{app_crypto, key_types::POC, sr25519};
-    app_crypto!(sr25519, POC);
+    use super::KEY_TYPE;
+    use sp_application_crypto::{app_crypto, sr25519};
+
+    app_crypto!(sr25519, KEY_TYPE);
 }
 
 /// A PoC farmer signature.
