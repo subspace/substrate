@@ -31,7 +31,7 @@ paste = "1.0"
 
 # Optional imports for benchmarking
 frame-benchmarking = { version = "4.0.0-dev", default-features = false, path = "../benchmarking", optional = true }
-rand_chacha = { version = "0.2", default-features = false, optional = true }
+rand_chacha = { version = "0.3", default-features = false, optional = true }
 
 [dev-dependencies]
 sp-storage = { version = "4.0.0-dev", path = "../../primitives/storage" }
@@ -43,7 +43,7 @@ pallet-staking-reward-curve = { version = "4.0.0-dev",  path = "../staking/rewar
 substrate-test-utils = { version = "4.0.0-dev", path = "../../test-utils" }
 frame-benchmarking = { version = "4.0.0-dev", path = "../benchmarking" }
 frame-election-provider-support = { version = "4.0.0-dev", features = ["runtime-benchmarks"], path = "../election-provider-support" }
-rand_chacha = { version = "0.2" }
+rand_chacha = { version = "0.3" }
 parking_lot = "0.11.1"
 hex = "0.4"
 
