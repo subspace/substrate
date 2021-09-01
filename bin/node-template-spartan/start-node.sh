@@ -15,6 +15,9 @@ run-full() {
     --net spartan \
     --name node-template-spartan-full \
     --mount source=node-template-spartan,target=/var/spartan \
+    --publish 0.0.0.0:30333:30333 \
+        --publish 127.0.0.1:9944:9944 \
+        --publish 127.0.0.1:9933:9933 \
     subspacelabs/node-template-spartan \
         --dev \
         --base-path /var/spartan \
