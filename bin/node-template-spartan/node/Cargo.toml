@@ -18,7 +18,7 @@ name = "node-template-spartan"
 [dependencies]
 structopt = "0.3.22"
 serde = { version = "1.0.127", features = ["derive"] }
-serde_json = "1.0.66"
+serde_json = "1.0.79"
 
 sc-cli = { version = "0.10.0-dev", path = "../../../client/cli", features = ["wasmtime"] }
 sp-core = { version = "4.0.0-dev", path = "../../../primitives/core" }
