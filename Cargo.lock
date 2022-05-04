@@ -1289,7 +1289,7 @@ checksum = "22813a6dc45b335f9bade10bf7271dc477e81113e89eb251a0bc2a8a81c536e1"
 dependencies = [
  "bstr",
  "csv-core",
- "itoa",
+ "itoa 0.4.7",
  "ryu",
  "serde",
 ]
@@ -2539,7 +2539,7 @@ checksum = "d6ccf5ede3a895d8856620237b2f02972c1bbc78d2965ad7fe8838d4a0ed41f0"
 dependencies = [
  "bytes 0.4.12",
  "fnv",
- "itoa",
+ "itoa 0.4.7",
 ]
 
 [[package]]
@@ -2550,7 +2550,7 @@ checksum = "7245cd7449cc792608c3c8a9eaf69bd4eabbabf802713748fd739c98b82f0747"
 dependencies = [
  "bytes 1.0.1",
  "fnv",
- "itoa",
+ "itoa 0.4.7",
 ]
 
 [[package]]
@@ -2627,7 +2627,7 @@ dependencies = [
  "http-body 0.1.0",
  "httparse",
  "iovec",
- "itoa",
+ "itoa 0.4.7",
  "log",
  "net2",
  "rustc_version 0.2.3",
@@ -2658,7 +2658,7 @@ dependencies = [
  "http-body 0.3.1",
  "httparse",
  "httpdate",
- "itoa",
+ "itoa 0.4.7",
  "pin-project 1.0.5",
  "socket2 0.3.19",
  "tokio 0.2.25",
@@ -2681,7 +2681,7 @@ dependencies = [
  "http-body 0.4.2",
  "httparse",
  "httpdate",
- "itoa",
+ "itoa 0.4.7",
  "pin-project 1.0.5",
  "tokio 1.6.0",
  "tower-service",
@@ -2893,6 +2893,12 @@ name = "itoa"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd25036021b0de88a0aff6b850051563c6516d0bf53f8638938edbb9de732736"
+
+[[package]]
+name = "itoa"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aab8fc367588b89dcee83ab0fd66b72b50b72fa1904d7095045ace2b0c81c35"
 
 [[package]]
 name = "jobserver"
@@ -8749,11 +8755,11 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.66"
+version = "1.0.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "336b10da19a12ad094b59d870ebde26a45402e5b470add4b5fd03c5048a32127"
+checksum = "9b7ce2b32a1aed03c558dc61a5cd328f15aff2dbc17daad8fb8af04d2100e15c"
 dependencies = [
- "itoa",
+ "itoa 1.0.1",
  "ryu",
  "serde",
 ]
