@@ -48,7 +48,7 @@ log = "0.4.14"
 schnorrkel = { version = "0.9.1" }
 rand = "0.7.2"
 merlin = "2.0"
-derive_more = "0.99.16"
+derive_more = "0.99.17"
 async-trait = "0.1.51"
 ring = "0.16"
 
