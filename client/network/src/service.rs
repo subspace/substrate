@@ -249,6 +249,8 @@ where
 
 		let default_notif_handshake_message = Roles::from(&params.role).encode();
 
+		let is_major_syncing = Arc::new(AtomicBool::new(false));
+
 		let (protocol, peerset_handle, mut known_addresses) = Protocol::new(
 			From::from(&params.role),
 			params.chain.clone(),
@@ -263,6 +265,7 @@ where
 				.collect(),
 			params.metrics_registry.as_ref(),
 			params.chain_sync,
+			Arc::clone(&is_major_syncing),
 		)?;
 
 		// List of multiaddresses that we know in the network.
@@ -296,7 +299,6 @@ where
 		})?;
 
 		let num_connected = Arc::new(AtomicUsize::new(0));
-		let is_major_syncing = Arc::new(AtomicBool::new(false));
 
 		// Build the swarm.
 		let (mut swarm, bandwidth): (Swarm<Behaviour<B, Client>>, _) = {
@@ -1948,11 +1950,12 @@ where
 			*this.external_addresses.lock() = external_addresses;
 		}
 
-		let is_major_syncing =
-			match this.network_service.behaviour_mut().user_protocol_mut().sync_state().state {
-				SyncState::Idle => false,
-				SyncState::Downloading => true,
-			};
+		let is_major_syncing = this
+			.network_service
+			.behaviour_mut()
+			.user_protocol_mut()
+			.sync_state()
+			.is_major_syncing;
 
 		this.tx_handler_controller.set_gossip_enabled(!is_major_syncing);
 

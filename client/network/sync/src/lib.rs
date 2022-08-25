@@ -269,6 +269,8 @@ pub struct PeerSync<B: BlockT> {
 	/// The state of syncing this peer is in for us, generally categories
 	/// into `Available` or "busy" with something as defined by `PeerSyncState`.
 	pub state: PeerSyncState<B>,
+	/// Whether peer is synced.
+	pub is_synced: bool,
 }
 
 impl<B: BlockT> PeerSync<B> {
@@ -382,15 +384,19 @@ where
 		+ 'static,
 {
 	fn peer_info(&self, who: &PeerId) -> Option<PeerInfo<B>> {
-		self.peers
-			.get(who)
-			.map(|p| PeerInfo { best_hash: p.best_hash, best_number: p.best_number })
+		self.peers.get(who).map(|p| PeerInfo {
+			best_hash: p.best_hash,
+			best_number: p.best_number,
+			is_synced: p.is_synced,
+		})
 	}
 
 	/// Returns the current sync status.
 	fn status(&self) -> SyncStatus<B> {
-		let best_seen = self.best_seen();
-		let sync_state = if let Some(n) = best_seen {
+		let median_seen = self.median_seen();
+		let best_seen_block =
+			median_seen.and_then(|median| (median > self.best_queued_number).then_some(median));
+		let sync_state = if let Some(n) = median_seen {
 			// A chain is classified as downloading if the provided best block is
 			// more than `MAJOR_SYNC_BLOCKS` behind the best block.
 			let best_block = self.client.info().best_number;
@@ -414,9 +420,14 @@ where
 			_ => None,
 		};
 
+		let is_major_syncing =
+			matches!(sync_state, SyncState::Downloading) || median_seen.is_none();
+
 		SyncStatus {
 			state: sync_state,
-			best_seen_block: best_seen,
+			best_seen_block,
+			// Consider to be syncing if doesn't have synced peers.
+			is_major_syncing,
 			num_peers: self.peers.len() as u32,
 			queued_blocks: self.queue_blocks.len() as u32,
 			state_sync: self.state_sync.as_ref().map(|s| s.progress()),
@@ -444,6 +455,7 @@ where
 		who: PeerId,
 		best_hash: B::Hash,
 		best_number: NumberFor<B>,
+		is_synced: bool,
 	) -> Result<Option<BlockRequest<B>>, BadPeer> {
 		// There is nothing sync can get from the node that has no blockchain data.
 		match self.block_status(&best_hash) {
@@ -478,6 +490,7 @@ where
 							best_hash,
 							best_number,
 							state: PeerSyncState::Available,
+							is_synced,
 						},
 					);
 					return Ok(None)
@@ -522,6 +535,7 @@ where
 						best_hash,
 						best_number,
 						state,
+						is_synced,
 					},
 				);
 
@@ -555,6 +569,7 @@ where
 						best_hash,
 						best_number,
 						state: PeerSyncState::Available,
+						is_synced,
 					},
 				);
 				self.allowed_requests.add(&who);
@@ -1720,8 +1735,12 @@ where
 	}
 
 	/// Returns the best seen block number if we don't have that block yet, `None` otherwise.
-	fn best_seen(&self) -> Option<NumberFor<B>> {
-		let mut best_seens = self.peers.values().map(|p| p.best_number).collect::<Vec<_>>();
+	fn median_seen(&self) -> Option<NumberFor<B>> {
+		let mut best_seens = self
+			.peers
+			.values()
+			.filter_map(|p| p.is_synced.then_some(p.best_number))
+			.collect::<Vec<_>>();
 
 		if best_seens.is_empty() {
 			None
@@ -1729,12 +1748,7 @@ where
 			let middle = best_seens.len() / 2;
 
 			// Not the "perfect median" when we have an even number of peers.
-			let median = *best_seens.select_nth_unstable(middle).1;
-			if median > self.best_queued_number {
-				Some(median)
-			} else {
-				None
-			}
+			Some(*best_seens.select_nth_unstable(middle).1)
 		}
 	}
 
@@ -1945,6 +1959,7 @@ where
 
 		let number = *announce.header.number();
 		let hash = announce.header.hash();
+		let is_synced = announce.is_synced;
 		let parent_status =
 			self.block_status(announce.header.parent_hash()).unwrap_or(BlockStatus::Unknown);
 		let known_parent = parent_status != BlockStatus::Unknown;
@@ -1962,6 +1977,7 @@ where
 			// update their best block
 			peer.best_number = number;
 			peer.best_hash = hash;
+			peer.is_synced = is_synced;
 		}
 
 		if let PeerSyncState::AncestorSearch { .. } = peer.state {
@@ -2059,7 +2075,7 @@ where
 			}
 
 			// handle peers that were in other states.
-			match self.new_peer(id, p.best_hash, p.best_number) {
+			match self.new_peer(id, p.best_hash, p.best_number, p.is_synced) {
 				Ok(None) => None,
 				Ok(Some(x)) => Some(Ok((id, x))),
 				Err(e) => Some(Err(e)),
@@ -2550,7 +2566,7 @@ mod test {
 		};
 
 		// add a new peer with the same best block
-		sync.new_peer(peer_id, a1_hash, a1_number).unwrap();
+		sync.new_peer(peer_id, a1_hash, a1_number, true).unwrap();
 
 		// and request a justification for the block
 		sync.request_justification(&a1_hash, a1_number);
@@ -2614,15 +2630,15 @@ mod test {
 		let (b1_hash, b1_number) = new_blocks(50);
 
 		// add 2 peers at blocks that we don't have locally
-		sync.new_peer(peer_id1.clone(), Hash::random(), 42).unwrap();
-		sync.new_peer(peer_id2.clone(), Hash::random(), 10).unwrap();
+		sync.new_peer(peer_id1.clone(), Hash::random(), 42, true).unwrap();
+		sync.new_peer(peer_id2.clone(), Hash::random(), 10, true).unwrap();
 
 		// we wil send block requests to these peers
 		// for these blocks we don't know about
 		assert!(sync.block_requests().all(|(p, _)| { *p == peer_id1 || *p == peer_id2 }));
 
 		// add a new peer at a known block
-		sync.new_peer(peer_id3.clone(), b1_hash, b1_number).unwrap();
+		sync.new_peer(peer_id3.clone(), b1_hash, b1_number, true).unwrap();
 
 		// we request a justification for a block we have locally
 		sync.request_justification(&b1_hash, b1_number);
@@ -2669,6 +2685,7 @@ mod test {
 	) {
 		let block_annnounce = BlockAnnounce {
 			header: header.clone(),
+			is_synced: true,
 			state: Some(BlockState::Best),
 			data: Some(Vec::new()),
 		};
@@ -2790,8 +2807,8 @@ mod test {
 		let block3_fork = build_block_at(block2.hash(), false);
 
 		// Add two peers which are on block 1.
-		sync.new_peer(peer_id1.clone(), block1.hash(), 1).unwrap();
-		sync.new_peer(peer_id2.clone(), block1.hash(), 1).unwrap();
+		sync.new_peer(peer_id1.clone(), block1.hash(), 1, true).unwrap();
+		sync.new_peer(peer_id2.clone(), block1.hash(), 1, true).unwrap();
 
 		// Tell sync that our best block is 3.
 		sync.update_chain_info(&block3.hash(), 3);
@@ -2885,9 +2902,9 @@ mod test {
 
 		let best_block = blocks.last().unwrap().clone();
 		// Connect the node we will sync from
-		sync.new_peer(peer_id1.clone(), best_block.hash(), *best_block.header().number())
+		sync.new_peer(peer_id1.clone(), best_block.hash(), *best_block.header().number(), true)
 			.unwrap();
-		sync.new_peer(peer_id2.clone(), info.best_hash, 0).unwrap();
+		sync.new_peer(peer_id2.clone(), info.best_hash, 0, true).unwrap();
 
 		let mut best_block_num = 0;
 		while best_block_num < MAX_DOWNLOAD_AHEAD {
@@ -3034,7 +3051,7 @@ mod test {
 
 		let common_block = blocks[MAX_BLOCKS_TO_LOOK_BACKWARDS as usize / 2].clone();
 		// Connect the node we will sync from
-		sync.new_peer(peer_id1.clone(), common_block.hash(), *common_block.header().number())
+		sync.new_peer(peer_id1.clone(), common_block.hash(), *common_block.header().number(), true)
 			.unwrap();
 
 		send_block_announce(fork_blocks.last().unwrap().header().clone(), &peer_id1, &mut sync);
@@ -3165,7 +3182,7 @@ mod test {
 
 		let common_block = blocks[MAX_BLOCKS_TO_LOOK_BACKWARDS as usize / 2].clone();
 		// Connect the node we will sync from
-		sync.new_peer(peer_id1.clone(), common_block.hash(), *common_block.header().number())
+		sync.new_peer(peer_id1.clone(), common_block.hash(), *common_block.header().number(), true)
 			.unwrap();
 
 		send_block_announce(fork_blocks.last().unwrap().header().clone(), &peer_id1, &mut sync);
@@ -3288,7 +3305,7 @@ mod test {
 		let peer_id1 = PeerId::random();
 		let common_block = blocks[1].clone();
 		// Connect the node we will sync from
-		sync.new_peer(peer_id1.clone(), common_block.hash(), *common_block.header().number())
+		sync.new_peer(peer_id1.clone(), common_block.hash(), *common_block.header().number(), true)
 			.unwrap();
 
 		// Create a "new" header and announce it
@@ -3320,7 +3337,7 @@ mod test {
 
 		let peer_id1 = PeerId::random();
 		let best_block = blocks[3].clone();
-		sync.new_peer(peer_id1.clone(), best_block.hash(), *best_block.header().number())
+		sync.new_peer(peer_id1.clone(), best_block.hash(), *best_block.header().number(), true)
 			.unwrap();
 
 		sync.peers.get_mut(&peer_id1).unwrap().state = PeerSyncState::Available;

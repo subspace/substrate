@@ -190,6 +190,8 @@ pub mod generic {
 	pub struct BlockAnnounce<H> {
 		/// New block header.
 		pub header: H,
+		/// Whether peer is synced.
+		pub is_synced: bool,
 		/// Block state. TODO: Remove `Option` and custom encoding when v4 becomes common.
 		pub state: Option<BlockState>,
 		/// Data associated with this block announcement, e.g. a candidate message.
@@ -202,6 +204,7 @@ pub mod generic {
 	impl<H: Encode> Encode for BlockAnnounce<H> {
 		fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {
 			self.header.encode_to(dest);
+			self.is_synced.encode_to(dest);
 			if let Some(state) = &self.state {
 				state.encode_to(dest);
 			}
@@ -215,8 +218,9 @@ pub mod generic {
 		fn decode<I: Input>(input: &mut I) -> Result<Self, codec::Error> {
 			let header = H::decode(input)?;
 			let state = BlockState::decode(input).ok();
+			let is_synced = bool::decode(input)?;
 			let data = Vec::decode(input).ok();
-			Ok(Self { header, state, data })
+			Ok(Self { header, is_synced, state, data })
 		}
 	}
 }

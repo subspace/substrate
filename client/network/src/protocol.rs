@@ -69,7 +69,10 @@ use std::{
 	io, iter,
 	num::NonZeroUsize,
 	pin::Pin,
-	sync::Arc,
+	sync::{
+		atomic::{AtomicBool, Ordering},
+		Arc,
+	},
 	task::Poll,
 	time,
 };
@@ -205,6 +208,12 @@ pub struct Protocol<B: BlockT, Client> {
 	boot_node_ids: HashSet<PeerId>,
 	/// A cache for the data that was associated to a block announcement.
 	block_announce_data_cache: lru::LruCache<B::Hash, Vec<u8>>,
+	/// Are we actively catching up with the chain?
+	is_major_syncing: Arc<AtomicBool>,
+	/// Parameter that allows node to forcefully assume it is synced, needed for network
+	/// bootstrapping only, as long as two synced nodes remain on the network at any time, this
+	/// doesn't need to be used.
+	force_synced: bool,
 }
 
 #[derive(Debug)]
@@ -233,6 +242,8 @@ pub struct PeerInfo<B: BlockT> {
 	pub best_hash: B::Hash,
 	/// Peer best block number
 	pub best_number: <B::Header as HeaderT>::Number,
+	/// Whether peer is synced.
+	pub is_synced: bool,
 }
 
 /// Handshake sent when we open a block announces substream.
@@ -246,6 +257,8 @@ struct BlockAnnouncesHandshake<B: BlockT> {
 	best_hash: B::Hash,
 	/// Genesis block hash.
 	genesis_hash: B::Hash,
+	/// Whether peer is synced.
+	is_synced: bool,
 }
 
 impl<B: BlockT> BlockAnnouncesHandshake<B> {
@@ -254,8 +267,9 @@ impl<B: BlockT> BlockAnnouncesHandshake<B> {
 		best_number: NumberFor<B>,
 		best_hash: B::Hash,
 		genesis_hash: B::Hash,
+		is_synced: bool,
 	) -> Self {
-		Self { genesis_hash, roles, best_number, best_hash }
+		Self { genesis_hash, roles, best_number, best_hash, is_synced }
 	}
 }
 
@@ -280,6 +294,7 @@ where
 		notifications_protocols_handshakes: Vec<Vec<u8>>,
 		metrics_registry: Option<&Registry>,
 		chain_sync: Box<dyn ChainSync<B>>,
+		is_major_syncing: Arc<AtomicBool>,
 	) -> error::Result<(Self, sc_peerset::PeersetHandle, Vec<(PeerId, Multiaddr)>)> {
 		let info = chain.info();
 
@@ -387,10 +402,16 @@ where
 			let best_number = info.best_number;
 			let best_hash = info.best_hash;
 			let genesis_hash = info.genesis_hash;
+			let is_synced = network_config.force_synced;
 
-			let block_announces_handshake =
-				BlockAnnouncesHandshake::<B>::build(roles, best_number, best_hash, genesis_hash)
-					.encode();
+			let block_announces_handshake = BlockAnnouncesHandshake::<B>::build(
+				roles,
+				best_number,
+				best_hash,
+				genesis_hash,
+				is_synced,
+			)
+			.encode();
 
 			let sync_protocol_config = notifications::ProtocolConfig {
 				name: block_announces_protocol.into(),
@@ -451,9 +472,20 @@ where
 			},
 			boot_node_ids,
 			block_announce_data_cache,
+			is_major_syncing,
+			force_synced: network_config.force_synced,
 		};
 
 		Ok((protocol, peerset_handle, known_addresses))
+	}
+
+	fn is_synced(&self) -> bool {
+		if self.force_synced {
+			return true
+		}
+
+		!self.is_major_syncing.load(Ordering::Relaxed) &&
+			self.peers.iter().any(|(_peer_id, peer)| peer.info.is_synced)
 	}
 
 	/// Returns the list of all the peers we have an open channel to.
@@ -532,8 +564,14 @@ where
 
 		self.behaviour.set_notif_protocol_handshake(
 			HARDCODED_PEERSETS_SYNC,
-			BlockAnnouncesHandshake::<B>::build(self.roles, number, hash, self.genesis_hash)
-				.encode(),
+			BlockAnnouncesHandshake::<B>::build(
+				self.roles,
+				number,
+				hash,
+				self.genesis_hash,
+				self.is_synced(),
+			)
+			.encode(),
 		);
 	}
 
@@ -542,6 +580,7 @@ where
 			if let Some(ref mut peer) = self.peers.get_mut(who) {
 				peer.info.best_hash = info.best_hash;
 				peer.info.best_number = info.best_number;
+				peer.info.is_synced = info.is_synced;
 			}
 		}
 	}
@@ -778,6 +817,7 @@ where
 				roles: status.roles,
 				best_hash: status.best_hash,
 				best_number: status.best_number,
+				is_synced: status.is_synced,
 			},
 			request: None,
 			known_blocks: LruHashSet::new(
@@ -786,7 +826,12 @@ where
 		};
 
 		let req = if peer.info.roles.is_full() {
-			match self.chain_sync.new_peer(who, peer.info.best_hash, peer.info.best_number) {
+			match self.chain_sync.new_peer(
+				who,
+				peer.info.best_hash,
+				peer.info.best_number,
+				peer.info.is_synced,
+			) {
 				Ok(req) => req,
 				Err(BadPeer(id, repu)) => {
 					self.behaviour.disconnect_peer(&id, HARDCODED_PEERSETS_SYNC);
@@ -841,6 +886,7 @@ where
 			return
 		}
 
+		let is_synced = self.is_synced();
 		let is_best = self.chain.info().best_hash == hash;
 		debug!(target: "sync", "Reannouncing block {:?} is_best: {}", hash, is_best);
 
@@ -854,6 +900,7 @@ where
 				trace!(target: "sync", "Announcing block {:?} to {}", hash, who);
 				let message = BlockAnnounce {
 					header: header.clone(),
+					is_synced,
 					state: if is_best { Some(BlockState::Best) } else { Some(BlockState::Normal) },
 					data: Some(data.clone()),
 				};
@@ -1586,6 +1633,7 @@ where
 								best_number: handshake.best_number,
 								best_hash: handshake.best_hash,
 								genesis_hash: handshake.genesis_hash,
+								is_synced: handshake.is_synced,
 							};
 
 							if self.on_sync_peer_connected(peer_id, handshake).is_ok() {
