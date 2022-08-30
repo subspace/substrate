@@ -47,7 +47,7 @@ use std::{
 
 const LOG_TARGET: &str = "sync";
 const MAX_BLOCKS_IN_RESPONSE: usize = 128;
-const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
+const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
 const MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER: usize = 2;
 
 mod rep {
@@ -405,11 +405,20 @@ where
 				indexed_body,
 			};
 
-			total_size += block_data.body.iter().map(|ex| ex.len()).sum::<usize>();
-			total_size += block_data.indexed_body.iter().map(|ex| ex.len()).sum::<usize>();
+			let new_total_size = total_size +
+				block_data.body.iter().map(|ex| ex.len()).sum::<usize>() +
+				block_data.indexed_body.iter().map(|ex| ex.len()).sum::<usize>();
+
+			// Send at least one block, but make sure to not exceed the limit.
+			if !blocks.is_empty() && new_total_size > MAX_BODY_BYTES {
+				break
+			}
+
+			total_size = new_total_size;
+
 			blocks.push(block_data);
 
-			if blocks.len() >= max_blocks as usize || total_size > MAX_BODY_BYTES {
+			if blocks.len() >= max_blocks as usize {
 				break
 			}
 
