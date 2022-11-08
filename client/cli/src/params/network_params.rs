@@ -146,6 +146,14 @@ pub struct NetworkParams {
 		verbatim_doc_comment
 	)]
 	pub sync: SyncMode,
+
+	/// Parameter that allows node to forcefully assume it is synced, needed for network
+	/// bootstrapping only, as long as two synced nodes remain on the network at any time, this
+	/// doesn't need to be used.
+	///
+	/// `--dev` enables this option automatically.
+	#[clap(long)]
+	pub force_synced: bool,
 }
 
 impl NetworkParams {
@@ -241,6 +249,7 @@ impl NetworkParams {
 			yamux_window_size: None,
 			ipfs_server: self.ipfs_server,
 			sync_mode: self.sync.into(),
+			force_synced: self.force_synced || is_dev,
 		}
 	}
 }
