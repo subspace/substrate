@@ -43,6 +43,7 @@ mockall::mock! {
 			who: PeerId,
 			best_hash: Block::Hash,
 			best_number: NumberFor<Block>,
+			is_synced: bool,
 		) -> Result<Option<BlockRequest<Block>>, BadPeer>;
 		fn update_chain_info(&mut self, best_hash: &Block::Hash, best_number: NumberFor<Block>);
 		fn request_justification(&mut self, hash: &Block::Hash, number: NumberFor<Block>);

@@ -195,6 +195,7 @@ impl TestNetworkBuilder {
 			state_request_protocol_config.name.clone(),
 			None,
 			rx,
+			true,
 		)
 		.unwrap();
 		let mut link = self.link.unwrap_or(Box::new(chain_sync_service.clone()));

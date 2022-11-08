@@ -869,6 +869,7 @@ pub trait TestNetFactory: Default + Sized + Send {
 				state_request_protocol_config.name.clone(),
 				Some(warp_protocol_config.name.clone()),
 				rx,
+				true,
 			)
 			.unwrap();
 		let sync_service_import_queue = Box::new(sync_service.clone());

@@ -149,6 +149,14 @@ pub struct NetworkParams {
 	/// and observe block requests timing out.
 	#[arg(long, value_name = "COUNT", default_value_t = 64)]
 	pub max_blocks_per_request: u32,
+
+	/// Parameter that allows node to forcefully assume it is synced, needed for network
+	/// bootstrapping only, as long as two synced nodes remain on the network at any time, this
+	/// doesn't need to be used.
+	///
+	/// `--dev` enables this option automatically.
+	#[clap(long)]
+	pub force_synced: bool,
 }
 
 impl NetworkParams {
@@ -244,6 +252,7 @@ impl NetworkParams {
 			yamux_window_size: None,
 			ipfs_server: self.ipfs_server,
 			sync_mode: self.sync.into(),
+			force_synced: self.force_synced || is_dev,
 		}
 	}
 }

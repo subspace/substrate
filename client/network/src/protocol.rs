@@ -325,6 +325,7 @@ impl<B: BlockT> NetworkBehaviour for Protocol<B> {
 								best_number: handshake.best_number,
 								best_hash: handshake.best_hash,
 								genesis_hash: handshake.genesis_hash,
+								is_synced: handshake.is_synced,
 							};
 
 							let (tx, rx) = oneshot::channel();
