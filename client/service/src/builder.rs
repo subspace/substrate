@@ -859,6 +859,7 @@ where
 		block_request_protocol_config.name.clone(),
 		state_request_protocol_config.name.clone(),
 		warp_sync_protocol_config.as_ref().map(|config| config.name.clone()),
+		config.network.force_synced,
 	)?;
 
 	request_response_protocol_configs.push(config.network.ipfs_server.then(|| {

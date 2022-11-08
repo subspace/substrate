@@ -390,6 +390,7 @@ async fn disconnect_peer_using_chain_sync_handle() {
 		ProtocolName::from("block-request"),
 		ProtocolName::from("state-request"),
 		None,
+		true,
 	)
 	.unwrap();
 

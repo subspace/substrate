@@ -40,6 +40,8 @@ pub struct PeerInfo<Block: BlockT> {
 	pub best_hash: Block::Hash,
 	/// Their best block number.
 	pub best_number: NumberFor<Block>,
+	/// Whether peer is synced.
+	pub is_synced: bool,
 }
 
 /// Reported sync state.
@@ -282,6 +284,7 @@ pub trait ChainSync<Block: BlockT>: Send {
 		who: PeerId,
 		best_hash: Block::Hash,
 		best_number: NumberFor<Block>,
+		is_synced: bool,
 	) -> Result<Option<BlockRequest<Block>>, BadPeer>;
 
 	/// Signal that a new best block has been imported.

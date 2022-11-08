@@ -262,6 +262,7 @@ impl TestNetworkBuilder {
 					.ok()
 					.flatten()
 					.expect("Genesis block exists; qed"),
+				network_config.force_synced,
 			))),
 			set_config: SetConfig {
 				in_peers: 0,
@@ -298,6 +299,7 @@ impl TestNetworkBuilder {
 				block_request_protocol_config.name.clone(),
 				state_request_protocol_config.name.clone(),
 				None,
+				true,
 			)
 			.unwrap();
 

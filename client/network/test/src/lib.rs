@@ -902,6 +902,7 @@ where
 			block_request_protocol_config.name.clone(),
 			state_request_protocol_config.name.clone(),
 			Some(warp_protocol_config.name.clone()),
+			network_config.force_synced,
 		)
 		.unwrap();
 

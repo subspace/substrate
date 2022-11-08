@@ -220,6 +220,8 @@ where
 			local_peer_id.to_base58(),
 		);
 
+		let is_major_syncing = Arc::new(AtomicBool::new(false));
+
 		let (protocol, peerset_handle, mut known_addresses) = Protocol::new(
 			From::from(&params.role),
 			params.chain.clone(),
@@ -227,6 +229,7 @@ where
 			params.metrics_registry.as_ref(),
 			params.chain_sync,
 			params.block_announce_config,
+			Arc::clone(&is_major_syncing),
 		)?;
 
 		// List of multiaddresses that we know in the network.
@@ -260,7 +263,6 @@ where
 		})?;
 
 		let num_connected = Arc::new(AtomicUsize::new(0));
-		let is_major_syncing = Arc::new(AtomicBool::new(false));
 
 		// Build the swarm.
 		let (mut swarm, bandwidth): (Swarm<Behaviour<B, Client>>, _) = {

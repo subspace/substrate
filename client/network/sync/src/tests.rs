@@ -54,6 +54,7 @@ async fn delegate_to_chainsync() {
 		ProtocolName::from("block-request"),
 		ProtocolName::from("state-request"),
 		None,
+		true,
 	)
 	.unwrap();
 
