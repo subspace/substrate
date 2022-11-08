@@ -897,6 +897,7 @@ where
 				.ok()
 				.flatten()
 				.expect("Genesis block exists; qed"),
+			network_config.force_synced,
 		);
 
 		let network = NetworkWorker::new(sc_network::config::Params {

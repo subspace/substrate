@@ -290,6 +290,8 @@ pub struct PeerSync<B: BlockT> {
 	/// The state of syncing this peer is in for us, generally categories
 	/// into `Available` or "busy" with something as defined by `PeerSyncState`.
 	pub state: PeerSyncState<B>,
+	/// Whether peer is synced.
+	pub is_synced: bool,
 }
 
 impl<B: BlockT> PeerSync<B> {
@@ -405,9 +407,11 @@ where
 		+ 'static,
 {
 	fn peer_info(&self, who: &PeerId) -> Option<PeerInfo<B>> {
-		self.peers
-			.get(who)
-			.map(|p| PeerInfo { best_hash: p.best_hash, best_number: p.best_number })
+		self.peers.get(who).map(|p| PeerInfo {
+			best_hash: p.best_hash,
+			best_number: p.best_number,
+			is_synced: p.is_synced,
+		})
 	}
 
 	/// Returns the current sync status.
@@ -475,6 +479,7 @@ where
 		who: PeerId,
 		best_hash: B::Hash,
 		best_number: NumberFor<B>,
+		is_synced: bool,
 	) -> Result<Option<BlockRequest<B>>, BadPeer> {
 		// There is nothing sync can get from the node that has no blockchain data.
 		match self.block_status(&best_hash) {
@@ -509,6 +514,7 @@ where
 							best_hash,
 							best_number,
 							state: PeerSyncState::Available,
+							is_synced,
 						},
 					);
 					return Ok(None)
@@ -553,6 +559,7 @@ where
 						best_hash,
 						best_number,
 						state,
+						is_synced,
 					},
 				);
 
@@ -586,6 +593,7 @@ where
 						best_hash,
 						best_number,
 						state: PeerSyncState::Available,
+						is_synced,
 					},
 				);
 				self.allowed_requests.add(&who);
@@ -1811,7 +1819,11 @@ where
 
 	/// Returns the median seen block number.
 	fn median_seen(&self) -> Option<NumberFor<B>> {
-		let mut best_seens = self.peers.values().map(|p| p.best_number).collect::<Vec<_>>();
+		let mut best_seens = self
+			.peers
+			.values()
+			.filter_map(|p| p.is_synced.then_some(p.best_number))
+			.collect::<Vec<_>>();
 
 		if best_seens.is_empty() {
 			None
@@ -2030,6 +2042,7 @@ where
 
 		let number = *announce.header.number();
 		let hash = announce.header.hash();
+		let is_synced = announce.is_synced;
 		let parent_status =
 			self.block_status(announce.header.parent_hash()).unwrap_or(BlockStatus::Unknown);
 		let known_parent = parent_status != BlockStatus::Unknown;
@@ -2052,6 +2065,7 @@ where
 			// update their best block
 			peer.best_number = number;
 			peer.best_hash = hash;
+			peer.is_synced = is_synced;
 		}
 
 		// If the announced block is the best they have and is not ahead of us, our common number
@@ -2144,7 +2158,7 @@ where
 			}
 
 			// handle peers that were in other states.
-			match self.new_peer(id, p.best_hash, p.best_number) {
+			match self.new_peer(id, p.best_hash, p.best_number, p.is_synced) {
 				Ok(None) => None,
 				Ok(Some(x)) => Some(Ok((id, x))),
 				Err(e) => Some(Err(e)),
@@ -2285,6 +2299,7 @@ where
 		best_number: NumberFor<B>,
 		best_hash: B::Hash,
 		genesis_hash: B::Hash,
+		is_synced: bool,
 	) -> NonDefaultSetConfig {
 		let block_announces_protocol = {
 			let genesis_hash = genesis_hash.as_ref();
@@ -2311,6 +2326,7 @@ where
 				best_number,
 				best_hash,
 				genesis_hash,
+				is_synced,
 			))),
 			// NOTE: `set_config` will be ignored by `protocol.rs` as the block announcement
 			// protocol is still hardcoded into the peerset.
@@ -2714,7 +2730,7 @@ mod test {
 		};
 
 		// add a new peer with the same best block
-		sync.new_peer(peer_id, a1_hash, a1_number).unwrap();
+		sync.new_peer(peer_id, a1_hash, a1_number, true).unwrap();
 
 		// and request a justification for the block
 		sync.request_justification(&a1_hash, a1_number);
@@ -2782,15 +2798,15 @@ mod test {
 		let (b1_hash, b1_number) = new_blocks(50);
 
 		// add 2 peers at blocks that we don't have locally
-		sync.new_peer(peer_id1, Hash::random(), 42).unwrap();
-		sync.new_peer(peer_id2, Hash::random(), 10).unwrap();
+		sync.new_peer(peer_id1, Hash::random(), 42, true).unwrap();
+		sync.new_peer(peer_id2, Hash::random(), 10, true).unwrap();
 
 		// we wil send block requests to these peers
 		// for these blocks we don't know about
 		assert!(sync.block_requests().all(|(p, _)| { p == peer_id1 || p == peer_id2 }));
 
 		// add a new peer at a known block
-		sync.new_peer(peer_id3, b1_hash, b1_number).unwrap();
+		sync.new_peer(peer_id3, b1_hash, b1_number, true).unwrap();
 
 		// we request a justification for a block we have locally
 		sync.request_justification(&b1_hash, b1_number);
@@ -2836,6 +2852,7 @@ mod test {
 	) {
 		let block_annnounce = BlockAnnounce {
 			header: header.clone(),
+			is_synced: true,
 			state: Some(BlockState::Best),
 			data: Some(Vec::new()),
 		};
@@ -2960,8 +2977,8 @@ mod test {
 		let block3_fork = build_block_at(block2.hash(), false);
 
 		// Add two peers which are on block 1.
-		sync.new_peer(peer_id1, block1.hash(), 1).unwrap();
-		sync.new_peer(peer_id2, block1.hash(), 1).unwrap();
+		sync.new_peer(peer_id1, block1.hash(), 1, true).unwrap();
+		sync.new_peer(peer_id2, block1.hash(), 1, true).unwrap();
 
 		// Tell sync that our best block is 3.
 		sync.update_chain_info(&block3.hash(), 3);
@@ -3058,9 +3075,9 @@ mod test {
 
 		let best_block = blocks.last().unwrap().clone();
 		// Connect the node we will sync from
-		sync.new_peer(peer_id1, best_block.hash(), *best_block.header().number())
+		sync.new_peer(peer_id1, best_block.hash(), *best_block.header().number(), true)
 			.unwrap();
-		sync.new_peer(peer_id2, info.best_hash, 0).unwrap();
+		sync.new_peer(peer_id2, info.best_hash, 0, true).unwrap();
 
 		let mut best_block_num = 0;
 		while best_block_num < MAX_DOWNLOAD_AHEAD {
@@ -3208,7 +3225,7 @@ mod test {
 
 		let common_block = blocks[MAX_BLOCKS_TO_LOOK_BACKWARDS as usize / 2].clone();
 		// Connect the node we will sync from
-		sync.new_peer(peer_id1, common_block.hash(), *common_block.header().number())
+		sync.new_peer(peer_id1, common_block.hash(), *common_block.header().number(), true)
 			.unwrap();
 
 		send_block_announce(fork_blocks.last().unwrap().header().clone(), &peer_id1, &mut sync);
@@ -3340,7 +3357,7 @@ mod test {
 
 		let common_block = blocks[MAX_BLOCKS_TO_LOOK_BACKWARDS as usize / 2].clone();
 		// Connect the node we will sync from
-		sync.new_peer(peer_id1, common_block.hash(), *common_block.header().number())
+		sync.new_peer(peer_id1, common_block.hash(), *common_block.header().number(), true)
 			.unwrap();
 
 		send_block_announce(fork_blocks.last().unwrap().header().clone(), &peer_id1, &mut sync);
@@ -3466,7 +3483,7 @@ mod test {
 		let peer_id1 = PeerId::random();
 		let common_block = blocks[1].clone();
 		// Connect the node we will sync from
-		sync.new_peer(peer_id1, common_block.hash(), *common_block.header().number())
+		sync.new_peer(peer_id1, common_block.hash(), *common_block.header().number(), true)
 			.unwrap();
 
 		// Create a "new" header and announce it
@@ -3501,7 +3518,7 @@ mod test {
 
 		let peer_id1 = PeerId::random();
 		let best_block = blocks[3].clone();
-		sync.new_peer(peer_id1, best_block.hash(), *best_block.header().number())
+		sync.new_peer(peer_id1, best_block.hash(), *best_block.header().number(), true)
 			.unwrap();
 
 		sync.peers.get_mut(&peer_id1).unwrap().state = PeerSyncState::Available;

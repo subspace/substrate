@@ -871,6 +871,7 @@ where
 			.ok()
 			.flatten()
 			.expect("Genesis block exists; qed"),
+		config.network.force_synced,
 	);
 
 	request_response_protocol_configs.push(config.network.ipfs_server.then(|| {

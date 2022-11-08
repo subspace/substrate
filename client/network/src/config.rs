@@ -241,6 +241,11 @@ pub struct NetworkConfiguration {
 	/// a modification of the way the implementation works. Different nodes with different
 	/// configured values remain compatible with each other.
 	pub yamux_window_size: Option<u32>,
+
+	/// Parameter that allows node to forcefully assume it is synced, needed for network
+	/// bootstrapping only, as long as two synced nodes remain on the network at any time, this
+	/// doesn't need to be used.
+	pub force_synced: bool,
 }
 
 impl NetworkConfiguration {
@@ -272,6 +277,7 @@ impl NetworkConfiguration {
 			kademlia_disjoint_query_paths: false,
 			yamux_window_size: None,
 			ipfs_server: false,
+			force_synced: false,
 		}
 	}
 
