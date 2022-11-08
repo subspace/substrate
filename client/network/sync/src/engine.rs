@@ -200,6 +200,11 @@ pub struct SyncingEngine<B: BlockT, Client> {
 	/// Are we actively catching up with the chain?
 	is_major_syncing: Arc<AtomicBool>,
 
+	/// Parameter that allows node to forcefully assume it is synced, needed for network
+	/// bootstrapping only, as long as two synced nodes remain on the network at any time, this
+	/// doesn't need to be used.
+	force_synced: bool,
+
 	/// Network service.
 	network_service: service::network::NetworkServiceHandle,
 
@@ -289,6 +294,7 @@ where
 		state_request_protocol_name: ProtocolName,
 		warp_sync_protocol_name: Option<ProtocolName>,
 		rx: sc_utils::mpsc::TracingUnboundedReceiver<sc_network::SyncEvent<B>>,
+		force_synced: bool,
 	) -> Result<(Self, SyncingService<B>, NonDefaultSetConfig), ClientError> {
 		let mode = match net_config.network_config.sync_mode {
 			SyncOperationMode::Full => SyncMode::Full,
@@ -372,6 +378,7 @@ where
 			block_request_protocol_name,
 			state_request_protocol_name,
 			warp_sync_protocol_name,
+			force_synced,
 		)?;
 
 		let block_announce_protocol_name = block_announce_config.notifications_protocol.clone();
@@ -396,6 +403,7 @@ where
 				block_announce_protocol_name,
 				num_connected: num_connected.clone(),
 				is_major_syncing: is_major_syncing.clone(),
+				force_synced: net_config.network_config.force_synced,
 				service_rx,
 				rx,
 				genesis_hash,
@@ -423,6 +431,15 @@ where
 			SyncingService::new(tx, num_connected, is_major_syncing),
 			block_announce_config,
 		))
+	}
+
+	fn is_synced(&self) -> bool {
+		if self.force_synced {
+			return true
+		}
+
+		!self.is_major_syncing.load(Ordering::Relaxed) &&
+			self.peers.iter().any(|(_peer_id, peer)| peer.info.is_synced)
 	}
 
 	/// Report Prometheus metrics.
@@ -460,6 +477,7 @@ where
 			if let Some(ref mut peer) = self.peers.get_mut(who) {
 				peer.info.best_hash = info.best_hash;
 				peer.info.best_number = info.best_number;
+				peer.info.is_synced = info.is_synced;
 			}
 		}
 	}
@@ -590,6 +608,7 @@ where
 			return
 		}
 
+		let is_synced = self.is_synced();
 		let is_best = self.client.info().best_hash == hash;
 		log::debug!(target: "sync", "Reannouncing block {:?} is_best: {}", hash, is_best);
 
@@ -603,6 +622,7 @@ where
 				log::trace!(target: "sync", "Announcing block {:?} to {}", hash, who);
 				let message = BlockAnnounce {
 					header: header.clone(),
+					is_synced,
 					state: if is_best { Some(BlockState::Best) } else { Some(BlockState::Normal) },
 					data: Some(data.clone()),
 				};
@@ -620,8 +640,14 @@ where
 		self.chain_sync.update_chain_info(&hash, number);
 		self.network_service.set_notification_handshake(
 			self.block_announce_protocol_name.clone(),
-			BlockAnnouncesHandshake::<B>::build(self.roles, number, hash, self.genesis_hash)
-				.encode(),
+			BlockAnnouncesHandshake::<B>::build(
+				self.roles,
+				number,
+				hash,
+				self.genesis_hash,
+				self.is_synced(),
+			)
+			.encode(),
 		)
 	}
 
@@ -930,6 +956,7 @@ where
 				roles: status.roles,
 				best_hash: status.best_hash,
 				best_number: status.best_number,
+				is_synced: status.is_synced,
 			},
 			known_blocks: LruHashSet::new(
 				NonZeroUsize::new(MAX_KNOWN_BLOCKS).expect("Constant is nonzero"),
@@ -940,7 +967,12 @@ where
 		};
 
 		let req = if peer.info.roles.is_full() {
-			match self.chain_sync.new_peer(who, peer.info.best_hash, peer.info.best_number) {
+			match self.chain_sync.new_peer(
+				who,
+				peer.info.best_hash,
+				peer.info.best_number,
+				peer.info.is_synced,
+			) {
 				Ok(req) => req,
 				Err(BadPeer(id, repu)) => {
 					self.network_service.report_peer(id, repu);

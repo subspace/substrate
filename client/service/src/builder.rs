@@ -913,6 +913,7 @@ where
 		state_request_protocol_name,
 		warp_request_protocol_name,
 		rx,
+		config.network.force_synced,
 	)?;
 	let sync_service_import_queue = sync_service.clone();
 	let sync_service = Arc::new(sync_service);
