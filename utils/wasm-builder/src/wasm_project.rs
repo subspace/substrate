@@ -710,25 +710,37 @@ fn build_project(
 
 /// Build the project to create the WASM binary.
 fn clean_target(project: &Path, cargo_cmd: &CargoCommandVersioned) {
-	let manifest_path = project.join("Cargo.toml");
-	let mut build_cmd = cargo_cmd.command();
+	// Try again for a minute before giving up
 
-	build_cmd
-		.arg("clean")
-		.arg(format!("--manifest-path={}", manifest_path.display()))
-		// Unset the `CARGO_TARGET_DIR` to prevent a cargo deadlock (cargo locks a target dir
-		// exclusive). The runner project is created in `CARGO_TARGET_DIR` and executing it will
-		// create a sub target directory inside of `CARGO_TARGET_DIR`.
-		.env_remove("CARGO_TARGET_DIR");
+	if cfg!(windows) {
+		// Normal removal fails on Windows: https://github.com/brson/wasm-opt-rs/issues/116
+		// Because of that removing a few paths manually on Windows
+		let profile = Profile::detect(project).name();
+		let _ = fs::remove_dir_all(project.join(format!("target/{}/deps", profile)));
+		let _ = fs::remove_dir_all(project.join("target/wasm32-unknown-unknown"));
+	} else {
+		let manifest_path = project.join("Cargo.toml");
+		let mut build_cmd = cargo_cmd.command();
 
-	if super::color_output_enabled() {
-		build_cmd.arg("--color=always");
-	}
+		build_cmd
+			.arg("clean")
+			.arg(format!("--manifest-path={}", manifest_path.display()))
+			// Unset the `CARGO_TARGET_DIR` to prevent a cargo deadlock (cargo locks a target dir
+			// exclusive). The runner project is created in `CARGO_TARGET_DIR` and executing it will
+			// create a sub target directory inside of `CARGO_TARGET_DIR`.
+			.env_remove("CARGO_TARGET_DIR");
 
-	match build_cmd.status().map(|s| s.success()) {
-		Ok(true) => (),
-		// Use `process.exit(1)` to have a clean error output.
-		_ => process::exit(1),
+		if super::color_output_enabled() {
+			build_cmd.arg("--color=always");
+		}
+
+		match build_cmd.status().map(|s| s.success()) {
+			Ok(true) => return,
+			_ => {
+				// Use `process.exit(1)` to have a clean error output.
+				process::exit(1)
+			},
+		}
 	}
 }
 
