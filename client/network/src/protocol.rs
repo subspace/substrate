@@ -31,6 +31,7 @@ use libp2p::{
 	Multiaddr, PeerId,
 };
 use log::{debug, error, info, log, trace, warn, Level};
+use lru::LruCache;
 use message::{generic::Message as GenericMessage, Message};
 use notifications::{Notifications, NotificationsOut};
 use prometheus_endpoint::{register, Gauge, GaugeVec, Opts, PrometheusError, Registry, U64};
@@ -203,7 +204,7 @@ pub struct Protocol<B: BlockT, Client> {
 	/// The `PeerId`'s of all boot nodes.
 	boot_node_ids: HashSet<PeerId>,
 	/// A cache for the data that was associated to a block announcement.
-	block_announce_data_cache: lru::LruCache<B::Hash, Vec<u8>>,
+	block_announce_data_cache: LruCache<B::Hash, Vec<u8>>,
 	/// Are we actively catching up with the chain?
 	is_major_syncing: Arc<AtomicBool>,
 	/// Parameter that allows node to forcefully assume it is synced, needed for network
@@ -368,10 +369,13 @@ where
 			)
 		};
 
-		let block_announce_data_cache = lru::LruCache::new(
-			network_config.default_peers_set.in_peers as usize +
-				network_config.default_peers_set.out_peers as usize,
-		);
+		let cache_capacity = NonZeroUsize::new(
+			(network_config.default_peers_set.in_peers as usize +
+				network_config.default_peers_set.out_peers as usize)
+				.max(1),
+		)
+		.expect("cache capacity is not zero");
+		let block_announce_data_cache = LruCache::new(cache_capacity);
 
 		let protocol = Self {
 			tick_timeout: Box::pin(interval(TICK_TIMEOUT)),
