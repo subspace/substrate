@@ -2065,7 +2065,10 @@ where
 			// update their best block
 			peer.best_number = number;
 			peer.best_hash = hash;
-			peer.is_synced = is_synced;
+			// Do not update synced status back to not synced. Announcements only happen
+			// occasionally and it is unlikely that actively connected peer will become not synced
+			// after being synced previously anyway.
+			peer.is_synced = peer.is_synced || is_synced;
 		}
 
 		// If the announced block is the best they have and is not ahead of us, our common number
