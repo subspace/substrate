@@ -505,6 +505,9 @@ where
 			} else {
 				SyncState::Idle
 			}
+		} else if self.peers.len() > 0 {
+			// There are known peers, but none of them are synced
+			SyncState::Pending
 		} else {
 			SyncState::Idle
 		};

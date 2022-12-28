@@ -47,6 +47,8 @@ pub struct PeerInfo<Block: BlockT> {
 /// Reported sync state.
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum SyncState<BlockNumber> {
+	/// Sync state can't be identified due to no known synced peers.
+	Pending,
 	/// Initial sync is complete, keep-up sync is active.
 	Idle,
 	/// Actively catching up with the chain.
@@ -72,7 +74,7 @@ pub struct StateDownloadProgress {
 }
 
 /// Syncing status and statistics.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SyncStatus<Block: BlockT> {
 	/// Current global sync state.
 	pub state: SyncState<NumberFor<Block>>,
