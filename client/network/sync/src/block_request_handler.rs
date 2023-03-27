@@ -17,6 +17,8 @@
 //! Helper for handling (i.e. answering) block requests from a remote peer via the
 //! `crate::request_responses::RequestResponsesBehaviour`.
 
+use crate::block_relay_protocol::{BlockServer, BlockDownloader, BlockRelayParams};
+use crate::service::network::NetworkServiceHandle;
 use crate::schema::v1::{block_request::FromBlock, BlockResponse, Direction};
 use codec::{Decode, Encode};
 use futures::{
@@ -30,7 +32,10 @@ use prost::Message;
 use sc_client_api::BlockBackend;
 use sc_network_common::{
 	config::ProtocolId,
-	request_responses::{IncomingRequest, OutgoingResponse, ProtocolConfig},
+	protocol::ProtocolName,
+	request_responses::{
+		IfDisconnected, IncomingRequest, OutgoingResponse, ProtocolConfig, RequestFailure
+	},
 	sync::message::BlockAttributes,
 };
 use sp_blockchain::HeaderBackend;
@@ -149,7 +154,7 @@ where
 		fork_id: Option<&str>,
 		client: Arc<Client>,
 		num_peer_hint: usize,
-	) -> (Self, ProtocolConfig) {
+	) -> BlockRelayParams<B> {
 		// Reserve enough request slots for one request per peer when we are at the maximum
 		// number of peers.
 		let (tx, request_receiver) = mpsc::channel(num_peer_hint);
@@ -169,11 +174,16 @@ where
 			NonZeroUsize::new(num_peer_hint.max(1) * 2).expect("cache capacity is not zero");
 		let seen_requests = LruCache::new(capacity);
 
-		(Self { client, request_receiver, seen_requests }, protocol_config)
+		BlockRelayParams {
+			server: Box::new(Self { client, request_receiver, seen_requests }),
+			downloader: Arc::new(FullBlockDownloader::new(protocol_config.name.clone())),
+			request_response_config: protocol_config,
+
+		}
 	}
 
 	/// Run [`BlockRequestHandler`].
-	pub async fn run(mut self) {
+	async fn process_requests(&mut self) {
 		while let Some(request) = self.request_receiver.next().await {
 			let IncomingRequest { peer, payload, pending_response } = request;
 
@@ -447,6 +457,17 @@ where
 	}
 }
 
+#[async_trait::async_trait]
+impl<B, Client> BlockServer<B> for BlockRequestHandler<B, Client>
+	where
+		B: BlockT,
+		Client: HeaderBackend<B> + BlockBackend<B> + Send + Sync + 'static,
+{
+	async fn run(&mut self) {
+		self.process_requests().await;
+	}
+}
+
 #[derive(Debug, thiserror::Error)]
 enum HandleRequestError {
 	#[error("Failed to decode request: {0}.")]
@@ -463,4 +484,37 @@ enum HandleRequestError {
 	Client(#[from] sp_blockchain::Error),
 	#[error("Failed to send response.")]
 	SendResponse,
+}
+
+pub struct FullBlockDownloader {
+	protocol_name: ProtocolName,
+}
+
+impl FullBlockDownloader {
+	fn new(protocol_name: ProtocolName) -> Self {
+		Self {
+			protocol_name
+		}
+	}
+}
+
+/// The full block download implementation.
+#[async_trait::async_trait]
+impl BlockDownloader for FullBlockDownloader {
+	async fn download_block(
+		&self,
+		who: PeerId,
+		request: Vec<u8>,
+		network: NetworkServiceHandle,
+	) -> Result<Result<Vec<u8>, RequestFailure>, oneshot::Canceled> {
+		let (tx, rx) = oneshot::channel();
+		network.start_request(
+			who,
+			self.protocol_name.clone(),
+			request,
+			tx,
+			IfDisconnected::ImmediateError,
+		);
+		rx.await
+	}
 }
