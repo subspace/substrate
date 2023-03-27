@@ -28,6 +28,7 @@
 //! the network, or whenever a block has been successfully verified, call the appropriate method in
 //! order to update it.
 
+pub mod block_relay_protocol;
 pub mod block_request_handler;
 pub mod blocks;
 pub mod mock;
@@ -41,6 +42,7 @@ pub mod warp;
 pub mod warp_request_handler;
 
 use crate::{
+	block_relay_protocol::BlockDownloader,
 	blocks::BlockCollection,
 	schema::v1::{StateRequest, StateResponse},
 	service::chain_sync::{ChainSyncInterfaceHandle, ToServiceCommand},
@@ -333,8 +335,8 @@ pub struct ChainSync<B: BlockT, Client> {
 	network_service: service::network::NetworkServiceHandle,
 	/// Protocol name used for block announcements
 	block_announce_protocol_name: ProtocolName,
-	/// Protocol name used to send out block requests
-	block_request_protocol_name: ProtocolName,
+	/// Block downloader stub
+	block_downloader: Arc<dyn BlockDownloader>,
 	/// Protocol name used to send out state requests
 	state_request_protocol_name: ProtocolName,
 	/// Protocol name used to send out warp sync requests
@@ -1402,23 +1404,18 @@ where
 	}
 
 	fn send_block_request(&mut self, who: PeerId, request: BlockRequest<B>) {
-		let (tx, rx) = oneshot::channel();
 		let opaque_req = self.create_opaque_block_request(&request);
-
-		if self.peers.contains_key(&who) {
-			self.pending_responses
-				.push(Box::pin(async move { (who, PeerRequest::Block(request), rx.await) }));
-		}
-
 		match self.encode_block_request(&opaque_req) {
 			Ok(data) => {
-				self.network_service.start_request(
-					who,
-					self.block_request_protocol_name.clone(),
-					data,
-					tx,
-					IfDisconnected::ImmediateError,
-				);
+				let network = self.network_service.clone();
+				let downloader = self.block_downloader.clone();
+				self.pending_responses.push(Box::pin(async move {
+					(
+						who,
+						PeerRequest::Block(request),
+						downloader.download_block(who, data, network).await
+					)
+				}));
 			},
 			Err(err) => {
 				log::warn!(
@@ -1456,7 +1453,7 @@ where
 		metrics_registry: Option<&Registry>,
 		network_service: service::network::NetworkServiceHandle,
 		import_queue: Box<dyn ImportQueueService<B>>,
-		block_request_protocol_name: ProtocolName,
+		block_downloader: Arc<dyn BlockDownloader>,
 		state_request_protocol_name: ProtocolName,
 		warp_sync_protocol_name: Option<ProtocolName>,
 		force_synced: bool,
@@ -1498,7 +1495,7 @@ where
 			gap_sync: None,
 			service_rx,
 			network_service,
-			block_request_protocol_name,
+			block_downloader,
 			state_request_protocol_name,
 			warp_sync_params,
 			warp_sync_protocol_name,
