@@ -96,7 +96,7 @@ use std::{
 pub use service::chain_sync::SyncingService;
 
 mod extra_requests;
-mod schema;
+pub mod schema;
 
 pub mod block_relay_protocol;
 pub mod block_request_handler;
