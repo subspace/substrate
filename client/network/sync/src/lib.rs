@@ -96,7 +96,7 @@ use std::{
 pub use service::chain_sync::SyncingService;
 pub use schema::v1::{
 	BlockData as BlockDataSchema, BlockRequest as BlockRequestSchema,
-	BlockResponse as BlockResponseScheme, Direction as DirectionSchema,
+	BlockResponse as BlockResponseSchema, Direction as DirectionSchema,
 };
 
 mod extra_requests;
