@@ -94,9 +94,13 @@ use std::{
 };
 
 pub use service::chain_sync::SyncingService;
+pub use schema::v1::{
+	BlockData as BlockDataSchema, BlockRequest as BlockRequestSchema,
+	BlockResponse as BlockResponseScheme, Direction as DirectionSchema,
+};
 
 mod extra_requests;
-pub mod schema;
+mod schema;
 
 pub mod block_relay_protocol;
 pub mod block_request_handler;
