@@ -97,6 +97,7 @@ pub use service::chain_sync::SyncingService;
 pub use schema::v1::{
 	BlockData as BlockDataSchema, BlockRequest as BlockRequestSchema,
 	BlockResponse as BlockResponseSchema, Direction as DirectionSchema,
+	block_request::FromBlock as FromBlockSchema,
 };
 
 mod extra_requests;
