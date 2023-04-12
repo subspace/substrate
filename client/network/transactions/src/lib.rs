@@ -281,7 +281,7 @@ struct Peer<H: ExHashT> {
 impl<B, H, N, S> TransactionsHandler<B, H, N, S>
 where
 	B: BlockT + 'static,
-	H: ExHashT,
+	H: ExHashT + std::fmt::Display,
 	N: NetworkPeers + NetworkEventStream + NetworkNotification,
 	S: SyncEventStream + sp_consensus::SyncOracle,
 {
@@ -418,6 +418,7 @@ where
 
 				self.network.report_peer(who, rep::ANY_TRANSACTION);
 
+				warn!(target: "sync", "Received {:?} from {:?}", hash, who);
 				match self.pending_transactions_peers.entry(hash.clone()) {
 					Entry::Vacant(entry) => {
 						self.pending_transactions.push(PendingTransaction {

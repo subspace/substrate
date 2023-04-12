@@ -485,6 +485,7 @@ where
 	}
 
 	fn import(&self, transaction: B::Extrinsic) -> TransactionImportFuture {
+		let tx_hash = self.hash_of(&transaction);
 		let encoded = transaction.encode();
 		let uxt = match Decode::decode(&mut &encoded[..]) {
 			Ok(uxt) => uxt,
@@ -503,17 +504,22 @@ where
 		);
 		Box::pin(async move {
 			match import_future.await {
-				Ok(_) => TransactionImport::NewGood,
+				Ok(_) => {
+					warn!("xxx: import(): success = {:?}/{:?}",
+							best_block_id, tx_hash);
+					TransactionImport::NewGood
+				},
 				Err(e) => match e.into_pool_error() {
 					Ok(sc_transaction_pool_api::error::Error::AlreadyImported(_)) =>
 						TransactionImport::KnownGood,
 					Ok(e) => {
-						warn!("xxx: import(): Error adding transaction to the pool = {:?}, best = {:?}",
-							best_block_id, e);
+						warn!("xxx: import(): Bad:: Error adding transaction to the pool = {:?}, {:?}/{:?}",
+							e, best_block_id, tx_hash);
 						TransactionImport::Bad
 					},
 					Err(e) => {
-						debug!("Error converting pool error: {}", e);
+						warn!("xxx: import(): KnownGood:: Error converting pool error = {:?}, {:?}/{:?}",
+							e, best_block_id, tx_hash);
 						// it is not bad at least, just some internal node logic error, so peer is
 						// innocent.
 						TransactionImport::KnownGood
