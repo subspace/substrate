@@ -508,7 +508,8 @@ where
 					Ok(sc_transaction_pool_api::error::Error::AlreadyImported(_)) =>
 						TransactionImport::KnownGood,
 					Ok(e) => {
-						debug!("Error adding transaction to the pool: {:?}", e);
+						warn!("xxx: import(): Error adding transaction to the pool = {:?}, best = {:?}",
+							best_block_id, e);
 						TransactionImport::Bad
 					},
 					Err(e) => {

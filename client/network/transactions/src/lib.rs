@@ -295,7 +295,7 @@ where
 				},
 				(tx_hash, result) = self.pending_transactions.select_next_some() => {
 					if let Some(peers) = self.pending_transactions_peers.remove(&tx_hash) {
-						peers.into_iter().for_each(|p| self.on_handle_transaction_import(p, result));
+						peers.into_iter().for_each(|p| self.on_handle_transaction_import(p, &tx_hash, result));
 					} else {
 						warn!(target: "sub-libp2p", "Inconsistent state, no peers for pending transaction!");
 					}
@@ -434,12 +434,16 @@ where
 		}
 	}
 
-	fn on_handle_transaction_import(&mut self, who: PeerId, import: TransactionImport) {
+	fn on_handle_transaction_import(&mut self, who: PeerId, tx_hash: &H, import: TransactionImport) {
 		match import {
 			TransactionImport::KnownGood =>
 				self.network.report_peer(who, rep::ANY_TRANSACTION_REFUND),
 			TransactionImport::NewGood => self.network.report_peer(who, rep::GOOD_TRANSACTION),
-			TransactionImport::Bad => self.network.report_peer(who, rep::BAD_TRANSACTION),
+			TransactionImport::Bad => {
+				warn!(target: "sync", "xxx: on_handle_transaction_import() => {:?} {:?}, {:?}",
+					tx_hash, import, who);
+				self.network.report_peer(who, rep::BAD_TRANSACTION)
+			},
 			TransactionImport::None => {},
 		}
 	}
