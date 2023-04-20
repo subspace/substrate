@@ -30,6 +30,7 @@
 
 use crate::{
 	blocks::BlockCollection,
+	block_relay_protocol::BlockDownloader,
 	schema::v1::{StateRequest, StateResponse},
 	state::StateSync,
 	warp::{WarpProofImportResult, WarpSync},
@@ -93,10 +94,16 @@ use std::{
 };
 
 pub use service::chain_sync::SyncingService;
+pub use schema::v1::{
+	BlockData as BlockDataSchema, BlockRequest as BlockRequestSchema,
+	BlockResponse as BlockResponseSchema, Direction as DirectionSchema,
+	block_request::FromBlock as FromBlockSchema,
+};
 
 mod extra_requests;
 mod schema;
 
+pub mod block_relay_protocol;
 pub mod block_request_handler;
 pub mod blocks;
 pub mod engine;
@@ -335,8 +342,8 @@ pub struct ChainSync<B: BlockT, Client> {
 	network_service: service::network::NetworkServiceHandle,
 	/// Protocol name used for block announcements
 	block_announce_protocol_name: ProtocolName,
-	/// Protocol name used to send out block requests
-	block_request_protocol_name: ProtocolName,
+	/// Block downloader stub
+	block_downloader: Arc<dyn BlockDownloader>,
 	/// Protocol name used to send out state requests
 	state_request_protocol_name: ProtocolName,
 	/// Protocol name used to send out warp sync requests
@@ -1364,23 +1371,20 @@ where
 	}
 
 	fn send_block_request(&mut self, who: PeerId, request: BlockRequest<B>) {
-		let (tx, rx) = oneshot::channel();
 		let opaque_req = self.create_opaque_block_request(&request);
-
-		if self.peers.contains_key(&who) {
-			self.pending_responses
-				.push(Box::pin(async move { (who, PeerRequest::Block(request), rx.await) }));
-		}
-
 		match self.encode_block_request(&opaque_req) {
 			Ok(data) => {
-				self.network_service.start_request(
-					who,
-					self.block_request_protocol_name.clone(),
-					data,
-					tx,
-					IfDisconnected::ImmediateError,
-				);
+				// Send the request even if the peer is not known. This would cause
+				// a failure to be returned. This simulates the existing behavior.
+				let network = self.network_service.clone();
+				let downloader = self.block_downloader.clone();
+				self.pending_responses.push(Box::pin(async move {
+					(
+						who,
+						PeerRequest::Block(request),
+						downloader.download_block(who, data, network).await
+					)
+				}));
 			},
 			Err(err) => {
 				log::warn!(
@@ -1418,7 +1422,7 @@ where
 		metrics_registry: Option<&Registry>,
 		network_service: service::network::NetworkServiceHandle,
 		import_queue: Box<dyn ImportQueueService<B>>,
-		block_request_protocol_name: ProtocolName,
+		block_downloader: Arc<dyn BlockDownloader>,
 		state_request_protocol_name: ProtocolName,
 		warp_sync_protocol_name: Option<ProtocolName>,
 		force_synced: bool,
@@ -1458,7 +1462,7 @@ where
 			import_existing: false,
 			gap_sync: None,
 			network_service,
-			block_request_protocol_name,
+			block_downloader,
 			state_request_protocol_name,
 			warp_sync_params,
 			warp_sync_protocol_name,
