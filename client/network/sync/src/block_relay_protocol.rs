@@ -31,13 +31,14 @@ pub trait BlockServer<Block: BlockT>: Send {
 	async fn run(&mut self);
 }
 
-/// The client side stub to download blocks from peers. This is a handle that can
-/// be used to initiate concurrent downloads.
+/// The client side stub to download blocks from peers. This is a handle
+/// that can be used to initiate concurrent downloads.
 #[async_trait::async_trait]
 pub trait BlockDownloader: Send + Sync {
 	/// Performs the protocol specific sequence to fetch the block from the peer.
-	/// Input: request is serialized schema::v1::BlockRequest.
-	/// Output: if the protocol succeeds, serialized schema::v1::BlockResponse is returned.
+	/// Input: `request` is the serialized schema::v1::BlockRequest.
+	/// Output: if the download succeeds, the serialized schema::v1::BlockResponse
+	/// is returned.
 	async fn download_block(
 		&self,
 		who: PeerId,

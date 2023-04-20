@@ -1374,8 +1374,9 @@ where
 		let opaque_req = self.create_opaque_block_request(&request);
 		match self.encode_block_request(&opaque_req) {
 			Ok(data) => {
-				// Send the request even if the peer is not known. This would cause
-				// a failure to be returned. This simulates the existing behavior.
+				// Send the request even if the peer is not known. This
+				// would cause a failure to be returned. This simulates
+				// the existing behavior.
 				let network = self.network_service.clone();
 				let downloader = self.block_downloader.clone();
 				self.pending_responses.push(Box::pin(async move {

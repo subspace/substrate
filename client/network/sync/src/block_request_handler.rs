@@ -26,14 +26,15 @@ use futures::{
 	stream::StreamExt,
 };
 use libp2p::PeerId;
-use log::{debug, info};
+use log::debug;
 use lru::LruCache;
 use prost::Message;
 use sc_client_api::BlockBackend;
 use sc_network::{
 	config::ProtocolId,
 	request_responses::{
-		IfDisconnected, IncomingRequest, OutgoingResponse, ProtocolConfig, RequestFailure
+		IfDisconnected, IncomingRequest, OutgoingResponse, ProtocolConfig,
+		RequestFailure
 	},
 	types::ProtocolName,
 };
@@ -184,10 +185,6 @@ where
 
 	/// Run [`BlockRequestHandler`].
 	async fn process_requests(&mut self) {
-		info!(
-			target: LOG_TARGET,
-			"BlockRequestHandler::process_requests(): started"
-		);
 		while let Some(request) = self.request_receiver.next().await {
 			let IncomingRequest { peer, payload, pending_response } = request;
 
