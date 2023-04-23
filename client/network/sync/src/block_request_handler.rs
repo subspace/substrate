@@ -17,10 +17,17 @@
 //! Helper for handling (i.e. answering) block requests from a remote peer via the
 //! `crate::request_responses::RequestResponsesBehaviour`.
 
-use crate::block_relay_protocol::{BlockServer, BlockDownloader, BlockRelayParams};
+use crate::block_relay_protocol::{
+	BlockServer, BlockDownloader, BlockRelayParams, BlockResponseErr
+};
 use crate::service::network::NetworkServiceHandle;
-use crate::schema::v1::{block_request::FromBlock, BlockResponse, Direction};
-use codec::{Decode, Encode};
+use crate::schema::v1::{
+	BlockRequest as BlockRequestSchema,
+	BlockResponse as BlockResponseSchema,
+	block_request::FromBlock as FromBlockSchema,
+	BlockResponse, Direction
+};
+use codec::{Decode, DecodeAll, Encode};
 use futures::{
 	channel::{mpsc, oneshot},
 	stream::StreamExt,
@@ -38,7 +45,7 @@ use sc_network::{
 	},
 	types::ProtocolName,
 };
-use sc_network_common::sync::message::BlockAttributes;
+use sc_network_common::sync::message::{BlockAttributes, BlockData, BlockRequest, FromBlock};
 use sp_blockchain::HeaderBackend;
 use sp_runtime::{
 	generic::BlockId,
@@ -207,11 +214,11 @@ where
 		let request = crate::schema::v1::BlockRequest::decode(&payload[..])?;
 
 		let from_block_id = match request.from_block.ok_or(HandleRequestError::MissingFromField)? {
-			FromBlock::Hash(ref h) => {
+			FromBlockSchema::Hash(ref h) => {
 				let h = Decode::decode(&mut h.as_ref())?;
 				BlockId::<B>::Hash(h)
 			},
-			FromBlock::Number(ref n) => {
+			FromBlockSchema::Number(ref n) => {
 				let n = Decode::decode(&mut n.as_ref())?;
 				BlockId::<B>::Number(n)
 			},
@@ -497,25 +504,113 @@ impl FullBlockDownloader {
 			protocol_name
 		}
 	}
+
+	/// Extracts the blocks from the response schema.
+	fn blocks_from_schema<B: BlockT>(
+		&self,
+		request: &BlockRequest<B>,
+		response: BlockResponseSchema
+	) -> Result<Vec<BlockData<B>>, String> {
+		response
+			.blocks
+			.into_iter()
+			.map(|block_data| {
+				Ok(BlockData::<B> {
+					hash: Decode::decode(&mut block_data.hash.as_ref())?,
+					header: if !block_data.header.is_empty() {
+						Some(Decode::decode(&mut block_data.header.as_ref())?)
+					} else {
+						None
+					},
+					body: if request.fields.contains(BlockAttributes::BODY) {
+						Some(
+							block_data
+								.body
+								.iter()
+								.map(|body| Decode::decode(&mut body.as_ref()))
+								.collect::<Result<Vec<_>, _>>()?,
+						)
+					} else {
+						None
+					},
+					indexed_body: if request.fields.contains(BlockAttributes::INDEXED_BODY) {
+						Some(block_data.indexed_body)
+					} else {
+						None
+					},
+					receipt: if !block_data.receipt.is_empty() {
+						Some(block_data.receipt)
+					} else {
+						None
+					},
+					message_queue: if !block_data.message_queue.is_empty() {
+						Some(block_data.message_queue)
+					} else {
+						None
+					},
+					justification: if !block_data.justification.is_empty() {
+						Some(block_data.justification)
+					} else if block_data.is_empty_justification {
+						Some(Vec::new())
+					} else {
+						None
+					},
+					justifications: if !block_data.justifications.is_empty() {
+						Some(DecodeAll::decode_all(&mut block_data.justifications.as_ref())?)
+					} else {
+						None
+					},
+				})
+			})
+			.collect::<Result<_, _>>()
+			.map_err(|error: codec::Error| error.to_string())
+	}
 }
 
 /// The full block download implementation.
 #[async_trait::async_trait]
-impl BlockDownloader for FullBlockDownloader {
+impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 	async fn download_block(
 		&self,
 		who: PeerId,
-		request: Vec<u8>,
+		request: BlockRequest<B>,
 		network: NetworkServiceHandle,
 	) -> Result<Result<Vec<u8>, RequestFailure>, oneshot::Canceled> {
+		// Build the request protobuf.
+		let bytes = BlockRequestSchema {
+			fields: request.fields.to_be_u32(),
+			from_block: match request.from {
+				FromBlock::Hash(h) => Some(FromBlockSchema::Hash(h.encode())),
+				FromBlock::Number(n) =>
+					Some(FromBlockSchema::Number(n.encode())),
+			},
+			direction: request.direction as i32,
+			max_blocks: request.max.unwrap_or(0),
+			support_multiple_justifications: true,
+		}.encode_to_vec();
+
 		let (tx, rx) = oneshot::channel();
 		network.start_request(
 			who,
 			self.protocol_name.clone(),
-			request,
+			bytes,
 			tx,
 			IfDisconnected::ImmediateError,
 		);
 		rx.await
+	}
+
+	fn block_response_into_blocks(
+		&self,
+		request: &BlockRequest<B>,
+		response: Vec<u8>,
+	) -> Result<Vec<BlockData<B>>, BlockResponseErr> {
+		// Decode the response protobuf
+		let response_schema = BlockResponseSchema::decode(response.as_slice())
+			.map_err(|error| BlockResponseErr::DecodeFailed(format!("{error}")))?;
+
+		// Extract the block data from the protobuf
+		self.blocks_from_schema::<B>(request, response_schema)
+			.map_err(|error| BlockResponseErr::ExtractionFailed(format!("{error}")))
 	}
 }
