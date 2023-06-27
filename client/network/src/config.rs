@@ -37,12 +37,13 @@ use zeroize::Zeroize;
 
 pub use sc_network_common::{
 	role::{Role, Roles},
-	sync::warp::WarpSyncProvider,
+	sync::{warp::WarpSyncProvider, SyncMode},
 	ExHashT,
 };
 use sc_utils::mpsc::TracingUnboundedSender;
 use sp_runtime::traits::Block as BlockT;
 
+use atomic::Atomic;
 use std::{
 	error::Error,
 	fmt, fs,
@@ -53,6 +54,7 @@ use std::{
 	path::{Path, PathBuf},
 	pin::Pin,
 	str::{self, FromStr},
+	sync::Arc,
 };
 
 pub use libp2p::{
@@ -272,40 +274,6 @@ impl NonReservedPeerMode {
 			"deny" => Some(Self::Deny),
 			_ => None,
 		}
-	}
-}
-
-/// Sync operation mode.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum SyncMode {
-	/// Full block download and verification.
-	Full,
-	/// Download blocks and the latest state.
-	Fast {
-		/// Skip state proof download and verification.
-		skip_proofs: bool,
-		/// Download indexed transactions for recent blocks.
-		storage_chain_mode: bool,
-	},
-	/// Warp sync - verify authority set transitions and the latest state.
-	Warp,
-}
-
-impl SyncMode {
-	/// Returns if `self` is [`Self::Warp`].
-	pub fn is_warp(&self) -> bool {
-		matches!(self, Self::Warp)
-	}
-
-	/// Returns if `self` is [`Self::Fast`].
-	pub fn is_fast(&self) -> bool {
-		matches!(self, Self::Fast { .. })
-	}
-}
-
-impl Default for SyncMode {
-	fn default() -> Self {
-		Self::Full
 	}
 }
 
@@ -590,8 +558,8 @@ pub struct NetworkConfiguration {
 	/// Maximum number of blocks per request.
 	pub max_blocks_per_request: u32,
 
-	/// Initial syncing mode.
-	pub sync_mode: SyncMode,
+	/// Syncing mode.
+	pub sync_mode: Arc<Atomic<SyncMode>>,
 
 	/// True if Kademlia random discovery should be enabled.
 	///
@@ -657,7 +625,7 @@ impl NetworkConfiguration {
 			transport: TransportConfig::Normal { enable_mdns: false, allow_private_ip: true },
 			max_parallel_downloads: 5,
 			max_blocks_per_request: 64,
-			sync_mode: SyncMode::Full,
+			sync_mode: Arc::new(Atomic::new(SyncMode::Full)),
 			enable_dht_random_walk: true,
 			allow_non_globals_in_dht: false,
 			kademlia_disjoint_query_paths: false,

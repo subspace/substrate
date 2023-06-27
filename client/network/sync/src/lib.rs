@@ -36,6 +36,7 @@ use crate::{
 	warp::{WarpProofImportResult, WarpSync},
 };
 
+use atomic::Atomic;
 use codec::Encode;
 use extra_requests::ExtraRequests;
 use futures::{
@@ -89,7 +90,7 @@ use std::{
 	iter,
 	ops::Range,
 	pin::Pin,
-	sync::Arc,
+	sync::{atomic::Ordering, Arc},
 };
 
 pub use service::chain_sync::SyncingService;
@@ -298,7 +299,7 @@ pub struct ChainSync<B: BlockT, Client> {
 	/// The best block hash in our queue of blocks to import
 	best_queued_hash: B::Hash,
 	/// Current mode (full/light)
-	mode: SyncMode,
+	mode: Arc<Atomic<SyncMode>>,
 	/// Any extra justification requests.
 	extra_justifications: ExtraRequests<B>,
 	/// A set of hashes of blocks that are being downloaded or have been
@@ -518,20 +519,21 @@ where
 			SyncState::Idle
 		};
 
-		let warp_sync_progress = match (&self.warp_sync, &self.mode, &self.gap_sync) {
-			(_, _, Some(gap_sync)) => Some(WarpSyncProgress {
-				phase: WarpSyncPhase::DownloadingBlocks(gap_sync.best_queued_number),
-				total_bytes: 0,
-			}),
-			(None, SyncMode::Warp, _) => Some(WarpSyncProgress {
-				phase: WarpSyncPhase::AwaitingPeers {
-					required_peers: MIN_PEERS_TO_START_WARP_SYNC,
-				},
-				total_bytes: 0,
-			}),
-			(Some(sync), _, _) => Some(sync.progress()),
-			_ => None,
-		};
+		let warp_sync_progress =
+			match (&self.warp_sync, self.mode.load(Ordering::Acquire), &self.gap_sync) {
+				(_, _, Some(gap_sync)) => Some(WarpSyncProgress {
+					phase: WarpSyncPhase::DownloadingBlocks(gap_sync.best_queued_number),
+					total_bytes: 0,
+				}),
+				(None, SyncMode::Warp, _) => Some(WarpSyncProgress {
+					phase: WarpSyncPhase::AwaitingPeers {
+						required_peers: MIN_PEERS_TO_START_WARP_SYNC,
+					},
+					total_bytes: 0,
+				}),
+				(Some(sync), _, _) => Some(sync.progress()),
+				_ => None,
+			};
 
 		SyncStatus {
 			state: sync_state,
@@ -653,7 +655,7 @@ where
 					},
 				);
 
-				if let SyncMode::Warp = self.mode {
+				if self.mode.load(Ordering::Acquire) == SyncMode::Warp {
 					if self.peers.len() >= MIN_PEERS_TO_START_WARP_SYNC && self.warp_sync.is_none()
 					{
 						log::debug!(target: "sync", "Starting warp state sync.");
@@ -1015,19 +1017,6 @@ where
 		Ok(self.validate_and_queue_blocks(new_blocks, gap))
 	}
 
-	fn process_block_response_data(&mut self, blocks_to_import: Result<OnBlockData<B>, BadPeer>) {
-		match blocks_to_import {
-			Ok(OnBlockData::Import(origin, blocks)) => self.import_blocks(origin, blocks),
-			Ok(OnBlockData::Request(peer, req)) => self.send_block_request(peer, req),
-			Ok(OnBlockData::Continue) => {},
-			Err(BadPeer(id, repu)) => {
-				self.network_service
-					.disconnect_peer(id, self.block_announce_protocol_name.clone());
-				self.network_service.report_peer(id, repu);
-			},
-		}
-	}
-
 	fn on_block_justification(
 		&mut self,
 		who: PeerId,
@@ -1096,7 +1085,7 @@ where
 			is_descendent_of(&**client, base, block)
 		});
 
-		if let SyncMode::LightState { skip_proofs, .. } = &self.mode {
+		if let SyncMode::LightState { skip_proofs, .. } = self.mode.load(Ordering::Acquire) {
 			if self.state_sync.is_none() && !self.peers.is_empty() && self.queue_blocks.is_empty() {
 				// Finalized a recent block.
 				let mut heads: Vec<_> = self.peers.values().map(|peer| peer.best_number).collect();
@@ -1115,7 +1104,7 @@ where
 							header,
 							None,
 							None,
-							*skip_proofs,
+							skip_proofs,
 						));
 						self.allowed_requests.set_all();
 					}
@@ -1336,7 +1325,7 @@ where
 {
 	/// Create a new instance.
 	pub fn new(
-		mode: SyncMode,
+		mode: Arc<Atomic<SyncMode>>,
 		client: Arc<Client>,
 		protocol_id: ProtocolId,
 		fork_id: &Option<String>,
@@ -1435,25 +1424,25 @@ where
 	}
 
 	fn required_block_attributes(&self) -> BlockAttributes {
-		match self.mode {
+		match self.mode.load(Ordering::Acquire) {
 			SyncMode::Full =>
 				BlockAttributes::HEADER | BlockAttributes::JUSTIFICATION | BlockAttributes::BODY,
-			SyncMode::Light => BlockAttributes::HEADER | BlockAttributes::JUSTIFICATION,
 			SyncMode::LightState { storage_chain_mode: false, .. } | SyncMode::Warp =>
 				BlockAttributes::HEADER | BlockAttributes::JUSTIFICATION | BlockAttributes::BODY,
 			SyncMode::LightState { storage_chain_mode: true, .. } =>
 				BlockAttributes::HEADER |
 					BlockAttributes::JUSTIFICATION |
 					BlockAttributes::INDEXED_BODY,
+			SyncMode::Paused => BlockAttributes::empty(),
 		}
 	}
 
 	fn skip_execution(&self) -> bool {
-		match self.mode {
+		match self.mode.load(Ordering::Acquire) {
 			SyncMode::Full => false,
-			SyncMode::Light => true,
 			SyncMode::LightState { .. } => true,
 			SyncMode::Warp => true,
+			SyncMode::Paused => false,
 		}
 	}
 
@@ -1703,18 +1692,6 @@ where
 			return PollBlockAnnounceValidation::Nothing { is_best, who, announce }
 		}
 
-		let requires_additional_data = self.mode != SyncMode::Light || !known_parent;
-		if !requires_additional_data {
-			trace!(
-				target: "sync",
-				"Importing new header announced from {}: {} {:?}",
-				who,
-				hash,
-				announce.header,
-			);
-			return PollBlockAnnounceValidation::ImportHeader { is_best, announce, who }
-		}
-
 		if self.status().state == SyncState::Idle {
 			trace!(
 				target: "sync",
@@ -1775,25 +1752,27 @@ where
 	/// state for.
 	fn reset_sync_start_point(&mut self) -> Result<(), ClientError> {
 		let info = self.client.info();
-		if matches!(self.mode, SyncMode::LightState { .. }) && info.finalized_state.is_some() {
+		if matches!(self.mode.load(Ordering::Acquire), SyncMode::LightState { .. }) &&
+			info.finalized_state.is_some()
+		{
 			warn!(
 				target: "sync",
 				"Can't use fast sync mode with a partially synced database. Reverting to full sync mode."
 			);
-			self.mode = SyncMode::Full;
+			self.mode.store(SyncMode::Full, Ordering::Release);
 		}
-		if matches!(self.mode, SyncMode::Warp) && info.finalized_state.is_some() {
+		if self.mode.load(Ordering::Acquire) == SyncMode::Warp && info.finalized_state.is_some() {
 			warn!(
 				target: "sync",
 				"Can't use warp sync mode with a partially synced database. Reverting to full sync mode."
 			);
-			self.mode = SyncMode::Full;
+			self.mode.store(SyncMode::Full, Ordering::Release);
 		}
 		self.import_existing = false;
 		self.best_queued_hash = info.best_hash;
 		self.best_queued_number = info.best_number;
 
-		if self.mode == SyncMode::Full &&
+		if self.mode.load(Ordering::Acquire) == SyncMode::Full &&
 			self.client.block_status(info.best_hash)? != BlockStatus::InChainWithState
 		{
 			self.import_existing = true;
@@ -2278,10 +2257,13 @@ where
 	}
 
 	fn block_requests(&mut self) -> Vec<(PeerId, BlockRequest<B>)> {
-		if self.mode == SyncMode::Warp {
-			return self
-				.warp_target_block_request()
-				.map_or_else(|| Vec::new(), |req| Vec::from([req]))
+		match self.mode.load(Ordering::Acquire) {
+			SyncMode::Warp =>
+				return self.warp_target_block_request().map_or_else(|| Vec::new(), |req| vec![req]),
+			SyncMode::Paused => return Vec::new(),
+			SyncMode::LightState { .. } | SyncMode::Full => {
+				// Continue
+			},
 		}
 
 		if self.allowed_requests.is_empty() || self.state_sync.is_some() {
@@ -2670,7 +2652,7 @@ where
 							self.state_sync.as_ref().map_or(0, |s| s.progress().size / (1024 * 1024)),
 						);
 						self.state_sync = None;
-						self.mode = SyncMode::Full;
+						self.mode.store(SyncMode::Full, Ordering::Release);
 						output.extend(self.restart());
 					}
 					let warp_sync_complete = self
@@ -2684,7 +2666,7 @@ where
 							self.warp_sync.as_ref().map_or(0, |s| s.progress().total_bytes / (1024 * 1024)),
 						);
 						self.warp_sync = None;
-						self.mode = SyncMode::Full;
+						self.mode.store(SyncMode::Full, Ordering::Release);
 						output.extend(self.restart());
 					}
 					let gap_sync_complete =
@@ -3132,7 +3114,7 @@ mod test {
 		let (_chain_sync_network_provider, chain_sync_network_handle) =
 			NetworkServiceProvider::new();
 		let (mut sync, _) = ChainSync::new(
-			SyncMode::Full,
+			Arc::new(Atomic::new(SyncMode::Full)),
 			client.clone(),
 			ProtocolId::from("test-protocol-name"),
 			&Some(String::from("test-fork-id")),
@@ -3200,7 +3182,7 @@ mod test {
 			NetworkServiceProvider::new();
 
 		let (mut sync, _) = ChainSync::new(
-			SyncMode::Full,
+			Arc::new(Atomic::new(SyncMode::Full)),
 			client.clone(),
 			ProtocolId::from("test-protocol-name"),
 			&Some(String::from("test-fork-id")),
@@ -3384,7 +3366,7 @@ mod test {
 			NetworkServiceProvider::new();
 
 		let (mut sync, _) = ChainSync::new(
-			SyncMode::Full,
+			Arc::new(Atomic::new(SyncMode::Full)),
 			client.clone(),
 			ProtocolId::from("test-protocol-name"),
 			&Some(String::from("test-fork-id")),
@@ -3512,7 +3494,7 @@ mod test {
 		let info = client.info();
 
 		let (mut sync, _) = ChainSync::new(
-			SyncMode::Full,
+			Arc::new(Atomic::new(SyncMode::Full)),
 			client.clone(),
 			ProtocolId::from("test-protocol-name"),
 			&Some(String::from("test-fork-id")),
@@ -3671,7 +3653,7 @@ mod test {
 		let info = client.info();
 
 		let (mut sync, _) = ChainSync::new(
-			SyncMode::Full,
+			Arc::new(Atomic::new(SyncMode::Full)),
 			client.clone(),
 			ProtocolId::from("test-protocol-name"),
 			&Some(String::from("test-fork-id")),
@@ -3815,7 +3797,7 @@ mod test {
 		let info = client.info();
 
 		let (mut sync, _) = ChainSync::new(
-			SyncMode::Full,
+			Arc::new(Atomic::new(SyncMode::Full)),
 			client.clone(),
 			ProtocolId::from("test-protocol-name"),
 			&Some(String::from("test-fork-id")),
@@ -3961,7 +3943,7 @@ mod test {
 		let blocks = (0..3).map(|_| build_block(&mut client, None, false)).collect::<Vec<_>>();
 
 		let (mut sync, _) = ChainSync::new(
-			SyncMode::Full,
+			Arc::new(Atomic::new(SyncMode::Full)),
 			client.clone(),
 			ProtocolId::from("test-protocol-name"),
 			&Some(String::from("test-fork-id")),
@@ -4008,7 +3990,7 @@ mod test {
 		let empty_client = Arc::new(TestClientBuilder::new().build());
 
 		let (mut sync, _) = ChainSync::new(
-			SyncMode::Full,
+			Arc::new(Atomic::new(SyncMode::Full)),
 			empty_client.clone(),
 			ProtocolId::from("test-protocol-name"),
 			&Some(String::from("test-fork-id")),
@@ -4063,7 +4045,7 @@ mod test {
 		let (_chain_sync_network_provider, chain_sync_network_handle) =
 			NetworkServiceProvider::new();
 		let (mut sync, _) = ChainSync::new(
-			SyncMode::Full,
+			Arc::new(Atomic::new(SyncMode::Full)),
 			client.clone(),
 			ProtocolId::from("test-protocol-name"),
 			&Some(String::from("test-fork-id")),
